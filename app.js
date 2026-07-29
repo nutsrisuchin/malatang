@@ -13,7 +13,17 @@ const EMPLOYMENT_LABELS = { 'full-time': 'เต็มเวลา', 'part-time'
 const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const THAI_MONTHS_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const THAI_WEEKDAYS_SHORT = ['อา','จ','อ','พ','พฤ','ศ','ส'];
-const DEFAULT_SHIFT_TEXT = '09:30-20:30';
+
+// Shift schedule: weekdays run 10:00-22:00, weekends 09:00-21:00 — both a
+// 12-hour span with a 1-hour unpaid break baked in, so a full normal day is
+// always 11 paid hours. Pay is a flat hourly wage, not a per-employee rate.
+const WEEKDAY_SHIFT = { start: '10:00', end: '22:00' };
+const WEEKEND_SHIFT = { start: '09:00', end: '21:00' };
+const BREAK_HOURS = 1;
+const HOURLY_RATE = 40;
+const FOOD_ALLOWANCE = 50;
+const FOOD_ALLOWANCE_MIN_HOURS = 10; // paid when hoursWorked > this
+const TILL_BONUS = 50;
 
 const NAV_ITEMS = [
   { view: 'home', label: 'หน้าหลัก', icon: '🏠', min: 'employee' },
@@ -33,7 +43,6 @@ const state = {
   user: null, // { id, name, role, employmentType }
   view: 'home',
   staff: [],
-  staffPay: {}, // { [staffId]: dailyRate } — only populated for admin+
   attendance: [],
   warehouseItems: [],
   warehouseLogs: [],
@@ -166,18 +175,42 @@ function isHoliday(dateStr) {
   return state.holidays.some((h) => h.date === dateStr);
 }
 
-// A day's pay: flat daily rate, minus ฿40 per full hour late, ×1.5 on a
-// holiday, +฿50 flat bonus for closing the till. Returns null when the
-// rate isn't known (i.e. the viewer isn't admin+ and never got staffPay).
+function isWeekendDate(dateStr) {
+  const day = new Date(dateStr + 'T00:00:00').getDay();
+  return day === 0 || day === 6;
+}
+
+function getShift(dateStr) {
+  return isWeekendDate(dateStr) ? WEEKEND_SHIFT : WEEKDAY_SHIFT;
+}
+
+function getShiftText(dateStr) {
+  const shift = getShift(dateStr);
+  return `${shift.start}-${shift.end}`;
+}
+
+// Full shift span minus the unpaid break — 11 hours for both the weekday
+// (10:00-22:00) and weekend (09:00-21:00) schedules.
+function getScheduledHours(dateStr) {
+  const shift = getShift(dateStr);
+  const [sh, sm] = shift.start.split(':').map(Number);
+  const [eh, em] = shift.end.split(':').map(Number);
+  return (eh * 60 + em - (sh * 60 + sm)) / 60 - BREAK_HOURS;
+}
+
+// A day's pay: ฿40/hour actually worked (a full day is 11 hours), ×1.5 on
+// a holiday, +฿50 food allowance when hoursWorked exceeds 10, +฿50 flat
+// bonus for closing the till. Being late simply reduces hours worked.
 function computePay(staffId, dateStr) {
-  const rate = state.staffPay[staffId];
-  if (rate == null) return null;
   const att = getAttendance(staffId, dateStr);
   if (att.dayOff) return 0;
-  const lateHours = Math.floor((att.lateMinutes || 0) / 60);
-  let pay = Math.max(0, rate - lateHours * 40);
+  const scheduledHours = getScheduledHours(dateStr);
+  const lateHours = (att.lateMinutes || 0) / 60;
+  const hoursWorked = Math.max(0, scheduledHours - lateHours);
+  let pay = hoursWorked * HOURLY_RATE;
   if (isHoliday(dateStr)) pay *= 1.5;
-  if (att.closedTill) pay += 50;
+  if (hoursWorked > FOOD_ALLOWANCE_MIN_HOURS) pay += FOOD_ALLOWANCE;
+  if (att.closedTill) pay += TILL_BONUS;
   return Math.round(pay);
 }
 
@@ -497,7 +530,8 @@ function renderScheduleGrid(staffList, editable) {
     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
     const cells = staffList.map((s) => {
       const att = getAttendance(s.id, date);
-      const shiftText = (att.clockIn || att.clockOut) ? `${att.clockIn || '09:30'}-${att.clockOut || '20:30'}` : DEFAULT_SHIFT_TEXT;
+      const shift = getShift(date);
+      const shiftText = (att.clockIn || att.clockOut) ? `${att.clockIn || shift.start}-${att.clockOut || shift.end}` : getShiftText(date);
       let cls = 'present', label = shiftText;
       if (att.dayOff) {
         cls = 'dayoff'; label = 'หยุด';
@@ -677,17 +711,24 @@ function renderStaffRow(s) {
 
 function renderFinancial() {
   const ym = state.financialMonth;
-  const activeStaff = state.staff.filter((s) => s.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  // Only hourly (scheduled/clocked) staff are paid this way — Admins/Owner
+  // aren't hourly employees, same exclusion as the Timesheet page.
+  const payStaff = state.staff
+    .filter((s) => s.active !== false && (s.role === 'employee' || s.role === 'manager'))
+    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
   const dates = monthDates(ym);
 
-  const rows = activeStaff.map((s) => {
-    const rate = state.staffPay[s.id];
-    const total = rate == null ? null : dates.reduce((sum, d) => sum + (computePay(s.id, d) || 0), 0);
+  const rows = payStaff.map((s) => {
+    let totalHours = 0, totalPay = 0;
+    dates.forEach((d) => {
+      const att = getAttendance(s.id, d);
+      if (!att.dayOff) totalHours += Math.max(0, getScheduledHours(d) - (att.lateMinutes || 0) / 60);
+      totalPay += computePay(s.id, d);
+    });
     return `<tr>
       <td>${escapeHtml(s.name)}</td>
-      <td>${rate != null ? formatBaht(rate) : '—'}</td>
-      <td>${total != null ? formatBaht(total) : '—'}</td>
-      <td><button class="btn btn-sm btn-outline" data-action="open-edit-staff-modal" data-id="${s.id}">แก้ไขค่าจ้าง</button></td>
+      <td>${totalHours.toFixed(1)} ชม.</td>
+      <td>${formatBaht(totalPay)}</td>
     </tr>`;
   }).join('');
 
@@ -700,10 +741,13 @@ function renderFinancial() {
     </div>
     <div class="card">
       <h3>เงินเดือนโดยประมาณ — ${monthLabelThai(ym)}</h3>
+      <p class="sub" style="margin-top:-4px">
+        อัตรา ฿${HOURLY_RATE}/ชม. · วันทำงานปกติ 11 ชม. = ฿${HOURLY_RATE * 11} · +฿${FOOD_ALLOWANCE} ค่าอาหารถ้าทำงานเกิน ${FOOD_ALLOWANCE_MIN_HOURS} ชม. · ×1.5 วันหยุดนักขัตฤกษ์ · +฿${TILL_BONUS} ปิดร้าน/นับเงิน
+      </p>
       <div style="overflow-x:auto">
         <table class="table-simple">
-          <thead><tr><th>ชื่อ</th><th>ค่าจ้าง/วัน</th><th>รวมประมาณการ</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="4">ยังไม่มีพนักงาน</td></tr>'}</tbody>
+          <thead><tr><th>ชื่อ</th><th>ชั่วโมงรวม</th><th>รวมประมาณการ</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3">ยังไม่มีพนักงาน</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -778,7 +822,6 @@ function openAddStaffModal() {
           <select name="employmentType"><option value="full-time">เต็มเวลา</option><option value="part-time">พาร์ทไทม์</option></select>
         </div>
       </div>
-      ${isAdmin() ? `<div class="field"><label>ค่าจ้างต่อวัน (บาท)</label><input type="number" name="dailyRate" min="0" value="0" /></div>` : ''}
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" data-action="close-modal">ยกเลิก</button>
         <button type="submit" class="btn btn-primary">บันทึก</button>
@@ -791,7 +834,6 @@ function openEditStaffModal(id) {
   const s = state.staff.find((x) => x.id === id);
   if (!s) return;
   const canChangeRole = isOwner() || (isAdmin() && s.role !== 'owner');
-  const rate = state.staffPay[id];
   const roleChoices = ['employee', 'manager', 'admin'].concat(s.role === 'owner' ? ['owner'] : []);
   openModal(`
     <div class="modal-header"><h3>แก้ไขพนักงาน</h3><button class="modal-close" data-action="close-modal">✕</button></div>
@@ -810,7 +852,6 @@ function openEditStaffModal(id) {
           </select>
         </div>
       </div>
-      ${isAdmin() ? `<div class="field"><label>ค่าจ้างต่อวัน (บาท)</label><input type="number" name="dailyRate" min="0" value="${rate != null ? rate : 0}" /></div>` : ''}
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:4px">
         <input type="checkbox" name="active" style="width:20px;height:20px" ${s.active !== false ? 'checked' : ''} /> เปิดใช้งานอยู่
       </label>
@@ -907,15 +948,16 @@ function openScheduleCellModal(staffId, date) {
   const staff = state.staff.find((s) => s.id === staffId);
   if (!staff) return;
   const att = getAttendance(staffId, date);
+  const shift = getShift(date);
   openModal(`
     <div class="modal-header"><h3>${escapeHtml(staff.name)}</h3><button class="modal-close" data-action="close-modal">✕</button></div>
-    <p class="sub" style="margin-top:-8px">${formatDateThai(date)}</p>
+    <p class="sub" style="margin-top:-8px">${formatDateThai(date)} · กะปกติ ${shift.start}-${shift.end}</p>
     <form data-form="schedule-cell" data-staff="${staffId}" data-date="${date}">
       <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" name="dayOff" style="width:20px;height:20px" ${att.dayOff ? 'checked' : ''} /> วันหยุด (ลา)</label>
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:8px"><input type="checkbox" name="closedTill" style="width:20px;height:20px" ${att.closedTill ? 'checked' : ''} /> ปิดร้าน/นับเงิน (+฿50)</label>
       <div class="form-row" style="margin-top:12px">
-        <div class="field"><label>เวลาเข้างานจริง</label><input type="time" name="clockIn" value="${att.clockIn || ''}" /></div>
-        <div class="field"><label>เวลาออกงานจริง</label><input type="time" name="clockOut" value="${att.clockOut || ''}" /></div>
+        <div class="field"><label>เวลาเข้างานจริง</label><input type="time" name="clockIn" value="${att.clockIn || ''}" placeholder="${shift.start}" /></div>
+        <div class="field"><label>เวลาออกงานจริง</label><input type="time" name="clockOut" value="${att.clockOut || ''}" placeholder="${shift.end}" /></div>
       </div>
       <div class="field"><label>สายกี่นาที</label><input type="number" name="lateMinutes" min="0" value="${att.lateMinutes || 0}" /></div>
       <div class="modal-actions">
@@ -1028,7 +1070,6 @@ async function handleAction(action, data, el) {
         if (!target || !canManageStaffMember(target) || target.role === 'owner') { toast('ไม่มีสิทธิ์ลบ', 'error'); return; }
         if (!confirm(`ลบพนักงาน ${target.name}? (บัญชีเข้าสู่ระบบจะยังไม่ถูกลบถาวร ต้องลบด้วยตนเองใน Firebase console)`)) return;
         await DB.deleteDoc('staff', data.id);
-        await DB.deleteDoc('staffPay', data.id).catch(() => {});
         addNotification(`${state.user.name} ลบพนักงาน: ${target.name}`);
         toast('ลบพนักงานแล้ว', 'success');
         return;
@@ -1101,13 +1142,9 @@ async function handleForm(name, formData, formEl) {
         const pin = formData.get('pin');
         const role = formData.get('role');
         const employmentType = formData.get('employmentType');
-        const dailyRate = formData.get('dailyRate');
         if (state.user.role === 'manager' && role !== 'employee') { toast('ผู้จัดการเพิ่มได้เฉพาะพนักงานทั่วไป', 'error'); return; }
         const { uid } = await DB.createStaffAuthAccount(staffName, pin);
         await DB.setDoc('staff', uid, { name: staffName, role, employmentType, active: true, createdAt: DB.serverTimestamp() });
-        if (isAdmin() && dailyRate !== null) {
-          await DB.setDoc('staffPay', uid, { dailyRate: Number(dailyRate) || 0 });
-        }
         addNotification(`${state.user.name} เพิ่มพนักงานใหม่: ${staffName}`);
         closeModal();
         toast('เพิ่มพนักงานสำเร็จ', 'success');
@@ -1124,9 +1161,6 @@ async function handleForm(name, formData, formEl) {
         const employmentType = formData.get('employmentType');
         const active = !!formData.get('active');
         await DB.updateDoc('staff', id, { name: staffName, role, employmentType, active });
-        if (isAdmin() && formData.has('dailyRate')) {
-          await DB.setDoc('staffPay', id, { dailyRate: Number(formData.get('dailyRate')) || 0 });
-        }
         addNotification(`${state.user.name} แก้ไขข้อมูลพนักงาน: ${staffName}`);
         closeModal();
         toast('บันทึกแล้ว', 'success');
@@ -1289,13 +1323,6 @@ async function startSubscriptions() {
   unsubscribers.push(DB.subscribeCollection('routineInspections', (items) => { state.routineInspections = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('holidays', (items) => { state.holidays = items; render(); }));
-  if (roleAtLeast(state.user.role, 'admin')) {
-    unsubscribers.push(DB.subscribeCollection('staffPay', (items) => {
-      state.staffPay = {};
-      items.forEach((i) => { state.staffPay[i.id] = i.dailyRate; });
-      render();
-    }));
-  }
 }
 
 DB.onAuthStateChanged(async (fbUser) => {

@@ -5,10 +5,10 @@ rules_version = '2';
 //
 // Role tiers (each includes everything below it): owner > admin > manager > employee.
 //
-// Pay-rate visibility (Managers must never read pay data, not even their own):
-// dailyRate lives in a separate `staffPay` collection, readable only by admin+.
-// `staff` never holds money fields, so Managers can safely read staff profiles
-// for scheduling without ever touching pay data.
+// Pay is a fixed hourly rate computed client-side from attendance records
+// (no per-employee rate stored in Firestore anymore), so there's no longer
+// a separate protected collection for it — the Financial screen itself
+// stays admin+-only via the app's navigation, not a security rule.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -53,11 +53,6 @@ service cloud.firestore {
       allow delete: if isOwner()
         || (isAdmin() && resource.data.role != 'owner')
         || (isManager() && resource.data.role == 'employee');
-    }
-
-    // ---------- pay rates: admin+ only, ever ----------
-    match /staffPay/{staffId} {
-      allow read, write: if isAdmin();
     }
 
     // ---------- attendance (facts only — no money) ----------
