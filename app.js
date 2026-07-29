@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { view: 'home', label: 'หน้าหลัก', icon: '🏠', min: 'employee' },
   { view: 'timesheet', label: 'ลงเวลา', icon: '🕒', min: 'employee' },
   { view: 'warehouse', label: 'คลังสินค้า', icon: '📦', min: 'employee' },
+  { view: 'analytics', label: 'วิเคราะห์คลังสินค้า', icon: '📊', min: 'manager' },
   { view: 'checklist', label: 'เช็คลิสต์', icon: '✅', min: 'employee' },
   { view: 'admin', label: 'แอดมิน', icon: '⚙️', min: 'admin' },
   { view: 'financial', label: 'การเงิน', icon: '💰', min: 'admin' },
@@ -233,16 +234,22 @@ function restockInfo(item) {
   const logs = state.warehouseLogs
     .filter((l) => l.itemId === item.id && l.delta < 0)
     .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
-  if (logs.length < 2) return { daysRemaining: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
+  if (logs.length < 2) return { daysRemaining: null, avgDailyUsage: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
   const first = toMillis(logs[0].createdAt);
   const last = toMillis(logs[logs.length - 1].createdAt);
   const totalDecrease = logs.reduce((s, l) => s + Math.abs(l.delta), 0);
   const days = Math.max(1, (last - first) / 86400000);
   const avgDaily = totalDecrease / days;
-  if (avgDaily <= 0) return { daysRemaining: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
+  if (avgDaily <= 0) return { daysRemaining: null, avgDailyUsage: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
   const daysRemaining = item.quantity / avgDaily;
   const level = daysRemaining < 3 ? 'low' : daysRemaining < 7 ? 'medium' : 'ok';
-  return { daysRemaining, level, text: `เหลือประมาณ ${daysRemaining.toFixed(1)} วัน` };
+  return { daysRemaining, avgDailyUsage: avgDaily, level, text: `เหลือประมาณ ${daysRemaining.toFixed(1)} วัน` };
+}
+
+function addDaysToDateStr(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 function routineStatus(routine) {
@@ -356,6 +363,9 @@ function render() {
   if ((state.view === 'admin' || state.view === 'financial') && !roleAtLeast(state.user.role, 'admin')) {
     state.view = 'home';
   }
+  if (state.view === 'analytics' && !roleAtLeast(state.user.role, 'manager')) {
+    state.view = 'home';
+  }
 
   document.getElementById('sidebar-nav').innerHTML = renderSidebarNav();
 
@@ -364,6 +374,7 @@ function render() {
     case 'home': view.innerHTML = renderHome(); break;
     case 'timesheet': view.innerHTML = renderTimesheet(); break;
     case 'warehouse': view.innerHTML = renderWarehouse(); break;
+    case 'analytics': view.innerHTML = renderAnalytics(); break;
     case 'checklist': view.innerHTML = renderChecklist(); break;
     case 'admin': view.innerHTML = renderAdmin(); break;
     case 'financial': view.innerHTML = renderFinancial(); break;
@@ -629,6 +640,44 @@ function renderWarehouseItem(item, canEdit) {
           <button class="btn btn-sm btn-ghost btn-icon" data-action="delete-warehouse-item" data-id="${item.id}">🗑</button>
         </div>
       ` : ''}
+    </div>`;
+}
+
+// ============================================================
+// Render: Warehouse analytics
+// ============================================================
+
+function renderAnalytics() {
+  const rows = state.warehouseItems
+    .map((item) => ({ item, info: restockInfo(item) }))
+    .sort((a, b) => (a.info.daysRemaining ?? Infinity) - (b.info.daysRemaining ?? Infinity));
+
+  return `
+    <div class="screen-header">
+      <div><h2>วิเคราะห์คลังสินค้า</h2><div class="sub">อัตราการใช้เฉลี่ยและวันที่คาดว่าสินค้าจะหมด</div></div>
+    </div>
+    <div class="card">
+      ${rows.length ? rows.map(({ item, info }) => renderAnalyticsRow(item, info)).join('') : '<div class="empty-state">ยังไม่มีรายการในคลัง</div>'}
+    </div>
+  `;
+}
+
+function renderAnalyticsRow(item, info) {
+  const statusLabel = info.level === 'low' ? 'ด่วน' : info.level === 'medium' ? 'เฝ้าระวัง' : info.daysRemaining != null ? 'ปกติ' : 'ไม่มีข้อมูล';
+  const statusBadge = info.level === 'low' ? 'danger' : info.level === 'medium' ? 'warning' : info.daysRemaining != null ? 'success' : 'muted';
+  const unit = escapeHtml(item.unit || 'หน่วย');
+  const runOutLine = info.daysRemaining != null
+    ? `คาดว่าจะหมดวันที่ <strong>${formatDateThai(addDaysToDateStr(todayStr(), Math.round(info.daysRemaining)))}</strong> (~${info.daysRemaining.toFixed(1)} วัน)`
+    : 'ยังไม่มีข้อมูลเพียงพอสำหรับคาดการณ์';
+
+  return `
+    <div class="list-row">
+      <div class="info">
+        <div class="title">${escapeHtml(item.name)} <span class="tag-pill">${escapeHtml(item.category || '')}</span></div>
+        <div class="meta">คงเหลือ ${item.quantity} ${unit}${info.avgDailyUsage ? ` · ใช้เฉลี่ย ${info.avgDailyUsage.toFixed(1)} ${unit}/วัน` : ''}</div>
+        <div class="meta">${runOutLine}</div>
+      </div>
+      <span class="badge badge-${statusBadge}">${statusLabel}</span>
     </div>`;
 }
 
