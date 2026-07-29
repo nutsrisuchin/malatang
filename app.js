@@ -227,23 +227,46 @@ async function saveAttendanceException(staffId, date, patch) {
   }
 }
 
-// Average daily usage is computed only from periods where quantity
-// actually decreased (restocking doesn't read as negative usage), then
-// projected forward.
+// How strongly each newer usage event outweighs the accumulated history in
+// the exponentially-weighted average below. Higher = reacts faster to
+// recent changes; lower = smoother but slower to notice a shift.
+const USAGE_EWMA_ALPHA = 0.35;
+const USAGE_TREND_THRESHOLD = 0.15; // ±15% vs the flat average counts as a trend
+
+// Usage is derived only from periods where quantity actually decreased
+// (restocking doesn't read as negative usage). Each pair of consecutive
+// decreases implies a daily rate (units used / days between them); those
+// per-event rates are combined with an exponentially-weighted moving
+// average (EWMA) so recent usage counts more than old usage, instead of
+// one flat average across all-time history. A flat (unweighted) average
+// is also computed as a baseline to detect whether usage is trending up
+// or down relative to it.
 function restockInfo(item) {
   const logs = state.warehouseLogs
     .filter((l) => l.itemId === item.id && l.delta < 0)
     .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
-  if (logs.length < 2) return { daysRemaining: null, avgDailyUsage: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
-  const first = toMillis(logs[0].createdAt);
-  const last = toMillis(logs[logs.length - 1].createdAt);
-  const totalDecrease = logs.reduce((s, l) => s + Math.abs(l.delta), 0);
-  const days = Math.max(1, (last - first) / 86400000);
-  const avgDaily = totalDecrease / days;
-  if (avgDaily <= 0) return { daysRemaining: null, avgDailyUsage: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
-  const daysRemaining = item.quantity / avgDaily;
+  if (logs.length < 2) return { daysRemaining: null, avgDailyUsage: null, trend: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
+
+  let ewma = null;
+  let totalDecrease = 0;
+  for (let i = 1; i < logs.length; i++) {
+    const gapDays = Math.max(1 / 24, (toMillis(logs[i].createdAt) - toMillis(logs[i - 1].createdAt)) / 86400000);
+    const eventRate = Math.abs(logs[i].delta) / gapDays;
+    ewma = ewma == null ? eventRate : USAGE_EWMA_ALPHA * eventRate + (1 - USAGE_EWMA_ALPHA) * ewma;
+    totalDecrease += Math.abs(logs[i].delta);
+  }
+  const flatDays = Math.max(1, (toMillis(logs[logs.length - 1].createdAt) - toMillis(logs[0].createdAt)) / 86400000);
+  const flatAvg = totalDecrease / flatDays;
+
+  if (!ewma || ewma <= 0) return { daysRemaining: null, avgDailyUsage: null, trend: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
+
+  const daysRemaining = item.quantity / ewma;
   const level = daysRemaining < 3 ? 'low' : daysRemaining < 7 ? 'medium' : 'ok';
-  return { daysRemaining, avgDailyUsage: avgDaily, level, text: `เหลือประมาณ ${daysRemaining.toFixed(1)} วัน` };
+  const trend = flatAvg <= 0 ? 'flat'
+    : ewma / flatAvg > 1 + USAGE_TREND_THRESHOLD ? 'up'
+    : ewma / flatAvg < 1 - USAGE_TREND_THRESHOLD ? 'down'
+    : 'flat';
+  return { daysRemaining, avgDailyUsage: ewma, trend, level, text: `เหลือประมาณ ${daysRemaining.toFixed(1)} วัน` };
 }
 
 function addDaysToDateStr(dateStr, n) {
@@ -662,6 +685,9 @@ function renderAnalytics() {
   `;
 }
 
+const TREND_LABEL = { up: '▲ ใช้เร็วขึ้น', down: '▼ ใช้ช้าลง', flat: '▪ คงที่' };
+const TREND_BADGE = { up: 'danger', down: 'success', flat: 'muted' };
+
 function renderAnalyticsRow(item, info) {
   const statusLabel = info.level === 'low' ? 'ด่วน' : info.level === 'medium' ? 'เฝ้าระวัง' : info.daysRemaining != null ? 'ปกติ' : 'ไม่มีข้อมูล';
   const statusBadge = info.level === 'low' ? 'danger' : info.level === 'medium' ? 'warning' : info.daysRemaining != null ? 'success' : 'muted';
@@ -677,7 +703,10 @@ function renderAnalyticsRow(item, info) {
         <div class="meta">คงเหลือ ${item.quantity} ${unit}${info.avgDailyUsage ? ` · ใช้เฉลี่ย ${info.avgDailyUsage.toFixed(1)} ${unit}/วัน` : ''}</div>
         <div class="meta">${runOutLine}</div>
       </div>
-      <span class="badge badge-${statusBadge}">${statusLabel}</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <span class="badge badge-${statusBadge}">${statusLabel}</span>
+        ${info.trend ? `<span class="badge badge-${TREND_BADGE[info.trend]}">${TREND_LABEL[info.trend]}</span>` : ''}
+      </div>
     </div>`;
 }
 
