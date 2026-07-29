@@ -997,13 +997,26 @@ function openRenameCategoryModal(oldCat) {
   `);
 }
 
+function subtaskRowHtml(text = '', requiresPhoto = false) {
+  return `
+    <div class="subtask-builder-row">
+      <input type="text" class="subtask-text-input" value="${escapeHtml(text)}" placeholder="เช่น เช็ดโต๊ะ" />
+      <label class="subtask-photo-check"><input type="checkbox" class="subtask-photo-checkbox" ${requiresPhoto ? 'checked' : ''} /> ต้องแนบรูป (สูงสุด 2 รูป)</label>
+      <button type="button" class="btn btn-sm btn-ghost btn-icon" data-action="remove-subtask-row">✕</button>
+    </div>`;
+}
+
 function openAddRoutineModal() {
   openModal(`
     <div class="modal-header"><h3>เพิ่มเช็คลิสต์</h3><button class="modal-close" data-action="close-modal">✕</button></div>
     <form data-form="add-routine">
       <div class="field"><label>ชื่อเช็คลิสต์</label><input type="text" name="name" required /></div>
       <div class="field"><label>คำแนะนำ (ถ้ามี)</label><textarea name="instructions"></textarea></div>
-      <div class="field"><label>รายการย่อย (บรรทัดละ 1 รายการ)</label><textarea name="subTasks" placeholder="เช่น&#10;เช็ดโต๊ะ&#10;ล้างมือ"></textarea></div>
+      <div class="field">
+        <label>รายการย่อย</label>
+        <div id="subtask-rows">${subtaskRowHtml()}</div>
+        <button type="button" class="btn btn-sm btn-outline" data-action="add-subtask-row" style="margin-top:8px">+ เพิ่มรายการย่อย</button>
+      </div>
       <div class="field">
         <label>ช่วงเวลา</label>
         <select name="timeTag"><option value="">ไม่ระบุ</option><option value="open">ก่อนเปิดร้าน</option><option value="close">หลังปิดร้าน</option></select>
@@ -1028,15 +1041,38 @@ function openAddRoutineModal() {
   `);
 }
 
+// Older routines stored subTasks as plain strings — normalize either shape.
+function normalizeSubtask(t) {
+  return typeof t === 'string' ? { text: t, requiresPhoto: false } : t;
+}
+
+function subtaskPhotoSlotHtml(index, slot) {
+  const field = `subtask-${index}-photo-${slot}`;
+  return `
+    <div class="photo-slot">
+      <input type="file" accept="image/*" capture="environment" data-photo-field="${field}" />
+      <input type="hidden" name="${field}" />
+      <img id="${field}-preview" class="photo-preview" style="display:none" />
+    </div>`;
+}
+
 function openRoutineReportModal(routineId) {
   const routine = state.routines.find((r) => r.id === routineId);
   if (!routine) return;
-  const subtasks = routine.subTasks || [];
+  const subtasks = (routine.subTasks || []).map(normalizeSubtask);
   openModal(`
     <div class="modal-header"><h3>${escapeHtml(routine.name)}</h3><button class="modal-close" data-action="close-modal">✕</button></div>
     <form data-form="routine-report" data-routine-id="${routine.id}">
       ${subtasks.length
-        ? subtasks.map((t, i) => `<label class="subtask-row"><input type="checkbox" name="subtask-${i}" /> <span>${escapeHtml(t)}</span></label>`).join('')
+        ? subtasks.map((t, i) => `
+          <div class="subtask-report-item">
+            <label class="subtask-row"><input type="checkbox" name="subtask-${i}" /> <span>${escapeHtml(t.text)}</span>${t.requiresPhoto ? ' <span class="tag-pill">ต้องแนบรูป</span>' : ''}</label>
+            ${t.requiresPhoto ? `
+              <div class="photo-slot-row">
+                ${subtaskPhotoSlotHtml(i, 0)}
+                ${subtaskPhotoSlotHtml(i, 1)}
+              </div>` : ''}
+          </div>`).join('')
         : '<p style="color:var(--color-text-muted)">ไม่มีรายการย่อย</p>'}
       <div class="field" style="margin-top:12px"><label>หมายเหตุ (ถ้ามี)</label><textarea name="note"></textarea></div>
       <div class="field">
@@ -1130,6 +1166,18 @@ async function handleAction(action, data, el) {
       case 'open-add-routine-modal': openAddRoutineModal(); return;
       case 'open-routine-report-modal': openRoutineReportModal(data.id); return;
       case 'open-schedule-cell-modal': openScheduleCellModal(data.staff, data.date); return;
+
+      case 'add-subtask-row': {
+        const container = document.getElementById('subtask-rows');
+        if (container) container.insertAdjacentHTML('beforeend', subtaskRowHtml());
+        return;
+      }
+      case 'remove-subtask-row': {
+        const container = document.getElementById('subtask-rows');
+        const row = el.closest('.subtask-builder-row');
+        if (row && container && container.children.length > 1) row.remove();
+        return;
+      }
 
       case 'quick-toggle-dayoff': {
         if (!isManager()) return;
@@ -1326,7 +1374,12 @@ async function handleForm(name, formData, formEl) {
         if (!isManager()) return;
         const routineName = formData.get('name').trim();
         const instructions = formData.get('instructions').trim();
-        const subTasks = formData.get('subTasks').split('\n').map((s) => s.trim()).filter(Boolean);
+        const subTasks = Array.from(formEl.querySelectorAll('.subtask-builder-row'))
+          .map((row) => ({
+            text: row.querySelector('.subtask-text-input').value.trim(),
+            requiresPhoto: row.querySelector('.subtask-photo-checkbox').checked,
+          }))
+          .filter((st) => st.text);
         const timeTag = formData.get('timeTag') || null;
         const recurrenceType = formData.get('recurrenceType');
         const intervalDays = Number(formData.get('intervalDays')) || 1;
@@ -1342,7 +1395,22 @@ async function handleForm(name, formData, formEl) {
         const routineId = formEl.dataset.routineId;
         const routine = state.routines.find((r) => r.id === routineId);
         if (!routine) return;
-        const subTasksChecked = (routine.subTasks || []).map((t, i) => ({ text: t, checked: !!formData.get(`subtask-${i}`) }));
+        const subtasks = (routine.subTasks || []).map(normalizeSubtask);
+        for (let i = 0; i < subtasks.length; i++) {
+          const t = subtasks[i];
+          const checked = !!formData.get(`subtask-${i}`);
+          if (t.requiresPhoto && checked && !formData.get(`subtask-${i}-photo-0`) && !formData.get(`subtask-${i}-photo-1`)) {
+            toast(`กรุณาแนบรูปสำหรับ "${t.text}"`, 'error');
+            return;
+          }
+        }
+        const subTasksChecked = subtasks.map((t, i) => ({
+          text: t.text,
+          checked: !!formData.get(`subtask-${i}`),
+          photos: t.requiresPhoto
+            ? [formData.get(`subtask-${i}-photo-0`), formData.get(`subtask-${i}-photo-1`)].filter(Boolean)
+            : [],
+        }));
         const note = formData.get('note').trim();
         const photo = formData.get('photo') || null;
         await DB.addDoc('routineInspections', {

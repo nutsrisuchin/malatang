@@ -487,8 +487,28 @@ main#view {
 /* ============ Checklist ============ */
 .routine-card { border-left: 4px solid var(--color-gold); }
 .routine-card.overdue { border-left-color: var(--color-danger); }
-.subtask-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.subtask-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; flex-wrap: wrap; }
 .subtask-row input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; }
+
+.subtask-report-item { padding: 4px 0; border-bottom: 1px solid var(--color-border); }
+.subtask-report-item:last-child { border-bottom: none; }
+
+.subtask-builder-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--color-border);
+}
+.subtask-builder-row:last-child { border-bottom: none; }
+.subtask-builder-row .subtask-text-input { flex: 1 1 160px; min-height: 42px; }
+.subtask-photo-check {
+  display: flex; align-items: center; gap: 6px; font-weight: 400;
+  font-size: 13px; color: var(--color-text-muted); white-space: nowrap;
+}
+.subtask-photo-check input[type="checkbox"] { width: 18px; height: 18px; }
+
+.photo-slot-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; }
+.photo-slot { flex: 1 1 120px; max-width: 160px; }
+.photo-slot input[type="file"] { font-size: 12px; }
+.photo-slot .photo-preview { max-width: 100%; margin-top: 6px; }
 
 /* ============ Modal ============ */
 #modal-host {
