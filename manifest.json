@@ -1,0 +1,25 @@
+{
+  "name": "Malatang",
+  "short_name": "Malatang",
+  "description": "ระบบจัดการร้าน Malatang — ลงเวลา คลังสินค้า เช็คลิสต์ และการเงิน",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FBF3E6",
+  "theme_color": "#A63A1E",
+  "icons": [
+    {
+      "src": "logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

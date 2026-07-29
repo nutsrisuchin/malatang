@@ -1,0 +1,106 @@
+rules_version = '2';
+
+// Paste this entire file into: Firebase console → Firestore Database → Rules → Publish.
+// This repo does not deploy rules automatically — re-paste after every edit.
+//
+// Role tiers (each includes everything below it): owner > admin > manager > employee.
+//
+// Pay-rate visibility (Managers must never read pay data, not even their own):
+// dailyRate lives in a separate `staffPay` collection, readable only by admin+.
+// `staff` never holds money fields, so Managers can safely read staff profiles
+// for scheduling without ever touching pay data.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnerEmail() {
+      return isSignedIn() && request.auth.token.email == "owner@malatang.local";
+    }
+
+    function staffExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return isOwnerEmail()
+        ? 'owner'
+        : (staffExists() ? get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role : null);
+    }
+
+    function isOwner()    { return myRole() == 'owner'; }
+    function isAdmin()    { return isOwner() || myRole() == 'admin'; }
+    function isManager()  { return isAdmin() || myRole() == 'manager'; }
+    function isEmployee() { return isManager() || myRole() == 'employee'; }
+
+    // ---------- staff profiles (no money fields here) ----------
+    match /staff/{staffId} {
+      allow read: if isEmployee();
+
+      // isOwner() is already true for the bootstrap email before its staff
+      // doc exists, so this also covers the owner's first-login bootstrap.
+      allow create: if isOwner()
+        || (isAdmin() && request.resource.data.role != 'owner')
+        || (isManager() && request.resource.data.role == 'employee');
+
+      allow update: if isOwner()
+        || (isAdmin() && resource.data.role != 'owner' && request.resource.data.role != 'owner')
+        || (isManager() && resource.data.role == 'employee' && request.resource.data.role == 'employee');
+
+      allow delete: if isOwner()
+        || (isAdmin() && resource.data.role != 'owner')
+        || (isManager() && resource.data.role == 'employee');
+    }
+
+    // ---------- pay rates: admin+ only, ever ----------
+    match /staffPay/{staffId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- attendance (facts only — no money) ----------
+    match /attendance/{docId} {
+      allow read: if isEmployee();
+      allow write: if isManager();
+    }
+
+    // ---------- warehouse ----------
+    match /warehouseItems/{docId} {
+      allow read: if isEmployee();
+      allow write: if isManager();
+    }
+
+    match /warehouseLogs/{docId} {
+      allow read: if isEmployee();
+      allow create: if isManager();
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- checklists ----------
+    match /routines/{docId} {
+      allow read: if isEmployee();
+      allow write: if isManager();
+    }
+
+    match /routineInspections/{docId} {
+      allow read: if isEmployee();
+      allow create: if isEmployee();
+      allow update, delete: if isManager();
+    }
+
+    // ---------- notifications ----------
+    match /notifications/{docId} {
+      allow read: if isEmployee();
+      allow create: if isEmployee();
+      allow update, delete: if isManager();
+    }
+
+    // ---------- holidays (1.5x pay days) ----------
+    match /holidays/{docId} {
+      allow read: if isEmployee();
+      allow write: if isAdmin();
+    }
+  }
+}

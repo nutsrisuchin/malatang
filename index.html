@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Malatang</title>
+  <meta name="description" content="ระบบจัดการร้าน Malatang — ลงเวลา คลังสินค้า เช็คลิสต์ และการเงิน" />
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/jpeg" href="logo.jpg" />
+  <link rel="apple-touch-icon" href="logo.jpg" />
+  <meta name="theme-color" content="#a63a1e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Malatang" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============ Login screen ============ -->
+  <div id="login-screen">
+    <div class="login-card">
+      <img class="login-logo" src="logo.jpg" alt="Malatang" />
+      <h1>Malatang</h1>
+      <p class="subtitle">ระบบจัดการร้าน — เข้าสู่ระบบด้วยชื่อและ PIN</p>
+      <form id="login-form" data-form="login">
+        <div id="login-error-slot"></div>
+        <div class="field">
+          <label for="login-name">ชื่อผู้ใช้</label>
+          <input type="text" id="login-name" name="name" autocomplete="username" placeholder="เช่น สมชาย" required />
+        </div>
+        <div class="field">
+          <label for="login-pin">PIN</label>
+          <input type="password" id="login-pin" name="pin" autocomplete="current-password" inputmode="numeric" placeholder="••••" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">เข้าสู่ระบบ</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ App shell ============ -->
+  <div id="app-shell">
+    <header class="topbar">
+      <button class="menu-toggle" data-action="toggle-sidebar" aria-label="เมนู">☰</button>
+      <div class="brand">
+        <img src="logo.jpg" alt="Malatang" />
+        <span>Malatang</span>
+      </div>
+      <div class="user-info" id="topbar-user-info"></div>
+      <button class="btn btn-sm btn-gold" data-action="open-pin-modal">เปลี่ยน PIN</button>
+    </header>
+
+    <div class="sidebar-backdrop" data-action="toggle-sidebar"></div>
+    <aside class="sidebar" id="sidebar">
+      <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main id="view"></main>
+  </div>
+
+  <!-- ============ Modal host & toasts ============ -->
+  <div id="modal-host"></div>
+  <div id="toast-host"></div>
+
+  <!-- Firebase (compat SDK — no build step) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script src="firebase-config.js"></script>
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
