@@ -433,18 +433,20 @@ main#view {
 .schedule-grid th, .schedule-grid td {
   border: 1px solid var(--color-border);
   text-align: center;
-  padding: 6px 4px;
-  font-size: 13px;
+  padding: 8px 6px;
+  font-size: 12px;
 }
 .schedule-grid thead th {
-  background: var(--color-primary);
-  color: #fff;
+  background: #f6e9d3;
+  color: var(--color-primary-dark);
   position: sticky; top: 0;
   white-space: nowrap;
-  padding: 10px 8px;
+  padding: 12px 10px;
+  font-size: 13px;
 }
 .schedule-grid td.day-col {
-  background: var(--color-bg);
+  background: #f6e9d3;
+  color: var(--color-primary-dark);
   font-weight: 700;
   white-space: nowrap;
   position: sticky; left: 0;
@@ -459,13 +461,19 @@ main#view {
   justify-content: center;
   width: 100%;
   min-width: 30px;
-  padding: 6px 2px;
-  font-weight: 700;
+  padding: 6px 4px;
+  font-weight: 600;
+  white-space: nowrap;
 }
-.schedule-cell.present { background: #d9f0e1; color: var(--color-success); }
-.schedule-cell.dayoff { background: #eee; color: var(--color-text-muted); }
-.schedule-cell.late { background: #f7e6bd; color: var(--color-warning); }
-.schedule-cell.till { background: var(--color-gold); color: var(--color-primary-dark); }
+.schedule-cell.present { color: var(--color-text); }
+.schedule-cell.late { color: var(--color-warning); font-weight: 700; }
+.schedule-cell.dayoff {
+  background: #fbdada;
+  color: #c0392b;
+  border-radius: 999px;
+  font-weight: 700;
+  padding: 5px 12px;
+}
 
 .attendance-panel { margin-bottom: 18px; }
 .attendance-today-row {

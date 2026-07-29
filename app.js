@@ -13,6 +13,7 @@ const EMPLOYMENT_LABELS = { 'full-time': 'เต็มเวลา', 'part-time'
 const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const THAI_MONTHS_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const THAI_WEEKDAYS_SHORT = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+const DEFAULT_SHIFT_TEXT = '09:30-20:30';
 
 const NAV_ITEMS = [
   { view: 'home', label: 'หน้าหลัก', icon: '🏠', min: 'employee' },
@@ -465,10 +466,14 @@ function renderScheduleGrid(staffList, editable) {
     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
     const cells = staffList.map((s) => {
       const att = getAttendance(s.id, date);
-      let cls = 'present', label = '—';
-      if (att.dayOff) { cls = 'dayoff'; label = 'หยุด'; }
-      else if (att.lateMinutes > 0) { cls = 'late'; label = 'สาย'; }
-      if (att.closedTill) { label += ' ★'; if (!att.dayOff) cls = 'till'; }
+      const shiftText = (att.clockIn || att.clockOut) ? `${att.clockIn || '09:30'}-${att.clockOut || '20:30'}` : DEFAULT_SHIFT_TEXT;
+      let cls = 'present', label = shiftText;
+      if (att.dayOff) {
+        cls = 'dayoff'; label = 'หยุด';
+      } else {
+        if (att.lateMinutes > 0) cls = 'late';
+        if (att.closedTill) label += ' ★';
+      }
       const attrs = editable ? `data-action="open-schedule-cell-modal" data-staff="${s.id}" data-date="${date}" style="cursor:pointer"` : '';
       return `<td class="${isWeekend ? 'weekend' : ''}"><span class="schedule-cell ${cls}" ${attrs}>${label}</span></td>`;
     }).join('');
