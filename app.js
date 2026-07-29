@@ -596,8 +596,9 @@ function renderWarehouseCategory(cat, items, canEdit) {
   const open = !!state.categoryOpen[cat];
   return `
     <div class="category ${open ? 'open' : ''}">
-      <div class="category-header" data-action="toggle-category" data-cat="${escapeHtml(cat)}">
-        <span>${escapeHtml(cat)} (${items.length})</span><span class="chevron">▸</span>
+      <div class="category-header">
+        <span data-action="toggle-category" data-cat="${escapeHtml(cat)}" style="flex:1;cursor:pointer">${escapeHtml(cat)} (${items.length}) <span class="chevron">▸</span></span>
+        ${canEdit ? `<button class="btn btn-sm btn-ghost btn-icon" title="แก้ไขชื่อหมวดหมู่" data-action="open-rename-category-modal" data-cat="${escapeHtml(cat)}">✎</button>` : ''}
       </div>
       <div class="category-body">${items.map((item) => renderWarehouseItem(item, canEdit)).join('')}</div>
     </div>`;
@@ -607,11 +608,13 @@ function renderWarehouseItem(item, canEdit) {
   const info = restockInfo(item);
   return `
     <div class="warehouse-item">
-      ${item.photo ? `<img class="thumb" src="${item.photo}" alt="${escapeHtml(item.name)}" />` : `<div class="thumb placeholder">📦</div>`}
-      <div class="info">
-        <div class="title">${escapeHtml(item.name)}</div>
-        <div class="meta">${item.quantity} ${escapeHtml(item.unit || 'หน่วย')}</div>
-        ${info.daysRemaining != null ? `<div class="restock-flag ${info.level}">เหลือ ~${info.daysRemaining.toFixed(1)} วัน</div>` : ''}
+      <div class="warehouse-item-main">
+        ${item.photo ? `<img class="thumb" src="${item.photo}" alt="${escapeHtml(item.name)}" />` : `<div class="thumb placeholder">📦</div>`}
+        <div class="info">
+          <div class="title">${escapeHtml(item.name)}</div>
+          <div class="meta">${item.quantity} ${escapeHtml(item.unit || 'หน่วย')}</div>
+          ${info.daysRemaining != null ? `<div class="restock-flag ${info.level}">เหลือ ~${info.daysRemaining.toFixed(1)} วัน</div>` : ''}
+        </div>
       </div>
       ${canEdit ? `
         <div class="warehouse-item-actions">
@@ -863,14 +866,29 @@ function openEditStaffModal(id) {
   `);
 }
 
+function getWarehouseCategories() {
+  return [...new Set(state.warehouseItems.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th'));
+}
+
 function openAddWarehouseModal() {
+  const categories = getWarehouseCategories();
   openModal(`
     <div class="modal-header"><h3>เพิ่มรายการคลังสินค้า</h3><button class="modal-close" data-action="close-modal">✕</button></div>
     <form data-form="add-warehouse-item">
       <div class="field"><label>ชื่อรายการ</label><input type="text" name="name" required /></div>
       <div class="form-row">
-        <div class="field"><label>หมวดหมู่</label><input type="text" name="category" placeholder="เช่น เนื้อสัตว์" required /></div>
+        <div class="field">
+          <label>หมวดหมู่</label>
+          <select name="categorySelect" data-action="wh-category-toggle">
+            ${categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+            <option value="__new__">+ หมวดหมู่ใหม่...</option>
+          </select>
+        </div>
         <div class="field"><label>หน่วย</label><input type="text" name="unit" placeholder="เช่น กก., ถุง" required /></div>
+      </div>
+      <div class="field" id="wh-category-new-field" style="${categories.length ? 'display:none' : ''}">
+        <label>ชื่อหมวดหมู่ใหม่</label>
+        <input type="text" name="categoryNew" placeholder="เช่น เนื้อสัตว์" ${categories.length ? '' : 'required'} />
       </div>
       <div class="field"><label>จำนวนเริ่มต้น</label><input type="number" name="quantity" value="0" min="0" required /></div>
       <div class="field">
@@ -879,6 +897,20 @@ function openAddWarehouseModal() {
         <input type="hidden" name="photo" />
         <img id="photo-preview" class="photo-preview" style="display:none" />
       </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" data-action="close-modal">ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+  `);
+}
+
+function openRenameCategoryModal(oldCat) {
+  openModal(`
+    <div class="modal-header"><h3>แก้ไขชื่อหมวดหมู่</h3><button class="modal-close" data-action="close-modal">✕</button></div>
+    <form data-form="rename-category" data-old-cat="${escapeHtml(oldCat)}">
+      <div class="field"><label>ชื่อหมวดหมู่</label><input type="text" name="newCat" value="${escapeHtml(oldCat)}" required /></div>
+      <p class="sub" style="margin-top:-4px">จะเปลี่ยนชื่อหมวดหมู่นี้ให้ทุกรายการที่อยู่ในหมวด "${escapeHtml(oldCat)}"</p>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" data-action="close-modal">ยกเลิก</button>
         <button type="submit" class="btn btn-primary">บันทึก</button>
@@ -996,6 +1028,20 @@ async function handleAction(action, data, el) {
 
       case 'toggle-attendance-panel': state.attendancePanelOpen = !state.attendancePanelOpen; render(); return;
       case 'toggle-category': state.categoryOpen[data.cat] = !state.categoryOpen[data.cat]; render(); return;
+
+      case 'wh-category-toggle': {
+        const newField = document.getElementById('wh-category-new-field');
+        const newInput = newField && newField.querySelector('input[name="categoryNew"]');
+        if (newField) newField.style.display = el.value === '__new__' ? 'block' : 'none';
+        if (newInput) newInput.required = el.value === '__new__';
+        return;
+      }
+
+      case 'open-rename-category-modal': {
+        if (!isManager()) return;
+        openRenameCategoryModal(data.cat);
+        return;
+      }
 
       case 'change-schedule-month': state.scheduleMonth = el.value; render(); return;
       case 'change-financial-month': state.financialMonth = el.value; render(); return;
@@ -1170,7 +1216,9 @@ async function handleForm(name, formData, formEl) {
       case 'add-warehouse-item': {
         if (!isManager()) return;
         const itemName = formData.get('name').trim();
-        const category = formData.get('category').trim();
+        const categorySelect = formData.get('categorySelect');
+        const category = categorySelect === '__new__' ? formData.get('categoryNew').trim() : categorySelect;
+        if (!category) { toast('กรุณาระบุหมวดหมู่', 'error'); return; }
         const unit = formData.get('unit').trim();
         const quantity = Number(formData.get('quantity')) || 0;
         const photo = formData.get('photo') || null;
@@ -1179,6 +1227,20 @@ async function handleForm(name, formData, formEl) {
         addNotification(`${state.user.name} เพิ่มรายการคลังสินค้า: ${itemName}`);
         closeModal();
         toast('เพิ่มรายการแล้ว', 'success');
+        return;
+      }
+
+      case 'rename-category': {
+        if (!isManager()) return;
+        const oldCat = formEl.dataset.oldCat;
+        const newCat = formData.get('newCat').trim();
+        if (!newCat) { toast('กรุณาระบุชื่อหมวดหมู่', 'error'); return; }
+        if (newCat === oldCat) { closeModal(); return; }
+        const items = state.warehouseItems.filter((i) => i.category === oldCat);
+        await Promise.all(items.map((i) => DB.updateDoc('warehouseItems', i.id, { category: newCat })));
+        addNotification(`${state.user.name} เปลี่ยนชื่อหมวดหมู่ "${oldCat}" เป็น "${newCat}"`);
+        closeModal();
+        toast('แก้ไขชื่อหมวดหมู่แล้ว', 'success');
         return;
       }
 
