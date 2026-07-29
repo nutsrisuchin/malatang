@@ -339,7 +339,38 @@ function render() {
   }
 
   updateTopbarUserInfo();
+
+  if (state.view === 'timesheet') {
+    requestAnimationFrame(fitScheduleGrid);
+  }
 }
+
+// Shrinks the whole schedule table (via CSS transform) so every column
+// fits on screen at once instead of requiring a sideways scroll. The
+// table renders at its natural content width first, then gets scaled
+// down uniformly — same idea as "zoom to fit" in a spreadsheet.
+function fitScheduleGrid() {
+  const wrap = document.querySelector('.schedule-scroll');
+  const table = wrap && wrap.querySelector('.schedule-grid');
+  if (!wrap || !table) return;
+
+  table.style.transform = 'none';
+  wrap.style.height = '';
+
+  const wrapWidth = wrap.clientWidth;
+  const naturalWidth = table.scrollWidth;
+  const naturalHeight = table.scrollHeight;
+  if (!wrapWidth || !naturalWidth) return;
+
+  const scale = Math.min(1, wrapWidth / naturalWidth);
+  table.style.transformOrigin = 'top left';
+  table.style.transform = `scale(${scale})`;
+  wrap.style.height = `${Math.ceil(naturalHeight * scale)}px`;
+}
+
+window.addEventListener('resize', () => {
+  if (state.view === 'timesheet') fitScheduleGrid();
+});
 
 function updateTopbarUserInfo() {
   const el = document.getElementById('topbar-user-info');
