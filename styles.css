@@ -349,7 +349,8 @@ main#view {
 .list-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--color-border);
 }
@@ -361,10 +362,10 @@ main#view {
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; flex-shrink: 0;
 }
-.list-row .info { flex: 1; min-width: 0; }
-.list-row .info .title { font-weight: 700; }
+.list-row .info { flex: 1 1 140px; min-width: 0; }
+.list-row .info .title { font-weight: 700; word-break: break-word; }
 .list-row .info .meta { font-size: 13px; color: var(--color-text-muted); }
-.list-row .actions { display: flex; gap: 6px; flex-shrink: 0; }
+.list-row .actions { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; margin-left: auto; }
 
 /* ============ Collapsible category ============ */
 .category {
@@ -391,7 +392,8 @@ main#view {
 /* ============ Warehouse item ============ */
 .warehouse-item {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--color-border);
   align-items: center;
@@ -406,13 +408,18 @@ main#view {
   display: flex; align-items: center; justify-content: center;
   color: var(--color-text-muted); font-size: 22px;
 }
-.warehouse-item .info { flex: 1; min-width: 0; }
+.warehouse-item .info { flex: 1 1 120px; min-width: 0; }
+.warehouse-item-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .warehouse-item .qty-controls { display: flex; align-items: center; gap: 8px; }
-.warehouse-item .qty-controls input { width: 64px; text-align: center; min-height: 40px; }
+.warehouse-item .qty-controls input { width: 56px; text-align: center; min-height: 40px; padding: 4px; }
 .qty-btn {
-  width: 40px; height: 40px; border-radius: 50%;
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
   border: 1px solid var(--color-border); background: var(--color-surface);
   font-size: 18px; font-weight: 800; cursor: pointer; color: var(--color-primary);
+}
+
+@media (max-width: 650px) {
+  .warehouse-item-actions { flex: 1 1 100%; justify-content: space-between; margin-left: 0; }
 }
 
 .restock-flag { font-size: 12px; font-weight: 700; margin-top: 2px; }
@@ -462,10 +469,16 @@ main#view {
 
 .attendance-panel { margin-bottom: 18px; }
 .attendance-today-row {
-  display: flex; align-items: center; gap: 12px; padding: 10px 0;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; padding: 10px 0;
   border-bottom: 1px solid var(--color-border);
 }
 .attendance-today-row:last-child { border-bottom: none; }
+.attendance-today-row .info { flex: 1 1 140px; min-width: 0; }
+.attendance-today-row .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+@media (max-width: 650px) {
+  .attendance-today-row .actions { flex: 1 1 100%; justify-content: flex-end; }
+}
 
 /* ============ Checklist ============ */
 .routine-card { border-left: 4px solid var(--color-gold); }

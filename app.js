@@ -427,12 +427,16 @@ function renderTimesheetManager() {
           <button class="btn btn-sm ${att.dayOff ? 'btn-outline' : 'btn-ghost'}" data-action="quick-toggle-dayoff" data-staff="${s.id}" data-date="${today}">ลา</button>
           <button class="btn btn-sm ${att.closedTill ? 'btn-gold' : 'btn-ghost'}" data-action="quick-toggle-till" data-staff="${s.id}" data-date="${today}">ปิดร้าน</button>
           <button class="btn btn-sm btn-outline" data-action="open-schedule-cell-modal" data-staff="${s.id}" data-date="${today}">แก้ไข</button>
+          ${canManageStaffMember(s) ? `<button class="btn btn-sm btn-ghost" data-action="delete-staff" data-id="${s.id}">ลบ</button>` : ''}
         </div>
       </div>`;
   }).join('');
 
   return `
-    <div class="screen-header"><div><h2>ลงเวลา</h2><div class="sub">จัดการเวลาเข้างานและตารางเดือน</div></div></div>
+    <div class="screen-header">
+      <div><h2>ลงเวลา</h2><div class="sub">จัดการเวลาเข้างานและตารางเดือน</div></div>
+      <button class="btn btn-primary" data-action="open-add-staff-modal">+ เพิ่มพนักงาน</button>
+    </div>
     <div class="card attendance-panel">
       <div class="category-header" style="cursor:pointer;margin:-18px -18px 0;padding:14px 18px;border-radius:14px 14px 0 0" data-action="toggle-attendance-panel">
         <span>ใครเข้างานวันนี้ (${formatDateThai(today)})</span>
@@ -540,15 +544,17 @@ function renderWarehouseItem(item, canEdit) {
         ${info.daysRemaining != null ? `<div class="restock-flag ${info.level}">เหลือ ~${info.daysRemaining.toFixed(1)} วัน</div>` : ''}
       </div>
       ${canEdit ? `
-        <div class="qty-controls">
-          <button class="qty-btn" data-action="wh-qty-dec" data-id="${item.id}">−</button>
-          <input type="number" value="${item.quantity}" data-action="wh-qty-set" data-id="${item.id}" />
-          <button class="qty-btn" data-action="wh-qty-inc" data-id="${item.id}">+</button>
+        <div class="warehouse-item-actions">
+          <div class="qty-controls">
+            <button class="qty-btn" data-action="wh-qty-dec" data-id="${item.id}">−</button>
+            <input type="number" value="${item.quantity}" data-action="wh-qty-set" data-id="${item.id}" />
+            <button class="qty-btn" data-action="wh-qty-inc" data-id="${item.id}">+</button>
+          </div>
+          <label class="btn btn-sm btn-outline btn-icon" title="เปลี่ยนรูป">📷
+            <input type="file" accept="image/*" capture="environment" data-action="wh-photo-select" data-id="${item.id}" style="display:none" />
+          </label>
+          <button class="btn btn-sm btn-ghost btn-icon" data-action="delete-warehouse-item" data-id="${item.id}">🗑</button>
         </div>
-        <label class="btn btn-sm btn-outline btn-icon" title="เปลี่ยนรูป">📷
-          <input type="file" accept="image/*" capture="environment" data-action="wh-photo-select" data-id="${item.id}" style="display:none" />
-        </label>
-        <button class="btn btn-sm btn-ghost btn-icon" data-action="delete-warehouse-item" data-id="${item.id}">🗑</button>
       ` : ''}
     </div>`;
 }
