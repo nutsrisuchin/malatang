@@ -403,7 +403,11 @@ function renderTimesheet() {
 
 function renderTimesheetManager() {
   const today = todayStr();
-  const activeStaff = state.staff.filter((s) => s.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  // Admins and the Owner aren't scheduled/clocked staff — only Managers
+  // and Employees appear in the daily panel and monthly grid.
+  const activeStaff = state.staff
+    .filter((s) => s.active !== false && (s.role === 'employee' || s.role === 'manager'))
+    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
   const panelOpen = state.attendancePanelOpen;
 
   const dailyRows = activeStaff.map((s) => {
