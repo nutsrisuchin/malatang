@@ -413,12 +413,7 @@ main#view {
 .warehouse-item .info .meta { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
 .warehouse-item-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .warehouse-item .qty-controls { display: flex; align-items: center; gap: 8px; }
-.warehouse-item .qty-controls input { width: 56px; text-align: center; min-height: 40px; padding: 4px; }
-.qty-btn {
-  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
-  border: 1px solid var(--color-border); background: var(--color-surface);
-  font-size: 18px; font-weight: 800; cursor: pointer; color: var(--color-primary);
-}
+.warehouse-item .qty-controls input { width: 80px; text-align: center; min-height: 40px; padding: 4px; }
 
 .restock-flag { font-size: 12px; font-weight: 700; margin-top: 2px; }
 .restock-flag.low { color: var(--color-danger); }

@@ -233,32 +233,53 @@ async function saveAttendanceException(staffId, date, patch) {
 const USAGE_EWMA_ALPHA = 0.35;
 const USAGE_TREND_THRESHOLD = 0.15; // ±15% vs the flat average counts as a trend
 
-// Usage is derived only from periods where quantity actually decreased
-// (restocking doesn't read as negative usage). Each pair of consecutive
-// decreases implies a daily rate (units used / days between them); those
-// per-event rates are combined with an exponentially-weighted moving
+function daysBetweenDateStrs(a, b) {
+  return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+}
+
+// Collapses an item's raw update logs into one quantity reading per
+// calendar day (that day's LATEST update) — if quantity was corrected
+// several times in one day, only the final value counts, so those
+// corrections don't get double-counted as separate usage events.
+function dailyQuantitySnapshots(item) {
+  const logs = state.warehouseLogs
+    .filter((l) => l.itemId === item.id)
+    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
+  const byDate = new Map(); // dateStr -> latest qty that day (later logs overwrite earlier ones)
+  logs.forEach((l) => byDate.set(dateStrOf(l.createdAt), l.newQty));
+  return [...byDate.entries()]
+    .map(([date, qty]) => ({ date, qty }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Usage is derived only from day-to-day drops in that daily snapshot
+// (restocking doesn't read as negative usage). Each drop implies a daily
+// rate (units used / calendar days between the two snapshot days); those
+// per-drop rates are combined with an exponentially-weighted moving
 // average (EWMA) so recent usage counts more than old usage, instead of
 // one flat average across all-time history. A flat (unweighted) average
 // is also computed as a baseline to detect whether usage is trending up
 // or down relative to it.
 function restockInfo(item) {
-  const logs = state.warehouseLogs
-    .filter((l) => l.itemId === item.id && l.delta < 0)
-    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
-  if (logs.length < 2) return { daysRemaining: null, avgDailyUsage: null, trend: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
+  const snapshots = dailyQuantitySnapshots(item);
+  if (snapshots.length < 2) return { daysRemaining: null, avgDailyUsage: null, trend: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
 
   let ewma = null;
   let totalDecrease = 0;
-  for (let i = 1; i < logs.length; i++) {
-    const gapDays = Math.max(1 / 24, (toMillis(logs[i].createdAt) - toMillis(logs[i - 1].createdAt)) / 86400000);
-    const eventRate = Math.abs(logs[i].delta) / gapDays;
+  let sawDecrease = false;
+  for (let i = 1; i < snapshots.length; i++) {
+    const delta = snapshots[i].qty - snapshots[i - 1].qty;
+    if (delta >= 0) continue; // restocks/no-change days don't count as usage
+    sawDecrease = true;
+    const gapDays = Math.max(1, daysBetweenDateStrs(snapshots[i - 1].date, snapshots[i].date));
+    const eventRate = Math.abs(delta) / gapDays;
     ewma = ewma == null ? eventRate : USAGE_EWMA_ALPHA * eventRate + (1 - USAGE_EWMA_ALPHA) * ewma;
-    totalDecrease += Math.abs(logs[i].delta);
+    totalDecrease += Math.abs(delta);
   }
-  const flatDays = Math.max(1, (toMillis(logs[logs.length - 1].createdAt) - toMillis(logs[0].createdAt)) / 86400000);
-  const flatAvg = totalDecrease / flatDays;
+  if (!sawDecrease || !ewma || ewma <= 0) return { daysRemaining: null, avgDailyUsage: null, trend: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
 
-  if (!ewma || ewma <= 0) return { daysRemaining: null, avgDailyUsage: null, trend: null, level: 'ok', text: 'ยังไม่มีข้อมูลเพียงพอ' };
+  const flatDays = Math.max(1, daysBetweenDateStrs(snapshots[0].date, snapshots[snapshots.length - 1].date));
+  const flatAvg = totalDecrease / flatDays;
 
   const daysRemaining = item.quantity / ewma;
   const level = daysRemaining < 3 ? 'low' : daysRemaining < 7 ? 'medium' : 'ok';
@@ -653,9 +674,8 @@ function renderWarehouseItem(item, canEdit) {
       ${canEdit ? `
         <div class="warehouse-item-actions">
           <div class="qty-controls">
-            <button class="qty-btn" data-action="wh-qty-dec" data-id="${item.id}">−</button>
-            <input type="number" value="${item.quantity}" data-action="wh-qty-set" data-id="${item.id}" />
-            <button class="qty-btn" data-action="wh-qty-inc" data-id="${item.id}">+</button>
+            <input type="number" id="wh-qty-input-${item.id}" value="${item.quantity}" min="0" />
+            <button class="btn btn-sm btn-primary" data-action="wh-qty-update" data-id="${item.id}">อัพเดท</button>
           </div>
           <label class="btn btn-sm btn-outline btn-icon" title="เปลี่ยนรูป">📷
             <input type="file" accept="image/*" capture="environment" data-action="wh-photo-select" data-id="${item.id}" style="display:none" />
@@ -1199,20 +1219,13 @@ async function handleAction(action, data, el) {
         return;
       }
 
-      case 'wh-qty-inc':
-      case 'wh-qty-dec': {
+      case 'wh-qty-update': {
         if (!isManager()) return;
         const item = state.warehouseItems.find((i) => i.id === data.id);
-        if (!item) return;
-        const delta = action === 'wh-qty-inc' ? 1 : -1;
-        await applyWarehouseQtyChange(item, Math.max(0, (item.quantity || 0) + delta));
-        return;
-      }
-      case 'wh-qty-set': {
-        if (!isManager()) return;
-        const item = state.warehouseItems.find((i) => i.id === data.id);
-        if (!item) return;
-        await applyWarehouseQtyChange(item, Math.max(0, Number(el.value) || 0));
+        const input = document.getElementById(`wh-qty-input-${data.id}`);
+        if (!item || !input) return;
+        await applyWarehouseQtyChange(item, Math.max(0, Number(input.value) || 0));
+        toast('อัปเดตจำนวนแล้ว', 'success');
         return;
       }
       case 'wh-photo-select': {
