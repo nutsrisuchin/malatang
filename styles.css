@@ -410,6 +410,12 @@ main#view {
 }
 .warehouse-item .info { flex: 1; min-width: 0; }
 .warehouse-item .info .title { font-weight: 700; font-size: 15px; white-space: normal; overflow-wrap: break-word; }
+.warehouse-item .info .title .update-date {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
 .warehouse-item .info .meta { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
 .warehouse-item-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .warehouse-item .qty-controls { display: flex; align-items: center; gap: 8px; }

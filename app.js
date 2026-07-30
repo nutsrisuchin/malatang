@@ -111,6 +111,12 @@ function formatDateTimeThai(ts) {
   return `${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear() + 543} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function formatDateDMY(ts) {
+  if (!ts) return '';
+  const d = ts.toMillis ? new Date(ts.toMillis()) : new Date(ts);
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
 function formatBaht(n) {
   return `฿${Math.round(n).toLocaleString('th-TH')}`;
 }
@@ -666,7 +672,7 @@ function renderWarehouseItem(item, canEdit) {
       <div class="warehouse-item-main">
         ${item.photo ? `<img class="thumb" src="${item.photo}" alt="${escapeHtml(item.name)}" />` : `<div class="thumb placeholder">📦</div>`}
         <div class="info">
-          <div class="title">${escapeHtml(item.name)}</div>
+          <div class="title">${escapeHtml(item.name)}${item.updatedAt ? ` <span class="update-date">${formatDateDMY(item.updatedAt)}</span>` : ''}</div>
           <div class="meta">${item.quantity} ${escapeHtml(item.unit || 'หน่วย')}</div>
           ${info.daysRemaining != null ? `<div class="restock-flag ${info.level}">เหลือ ~${info.daysRemaining.toFixed(1)} วัน</div>` : ''}
         </div>
@@ -1279,7 +1285,7 @@ async function handleAction(action, data, el) {
 async function applyWarehouseQtyChange(item, newQty) {
   const delta = newQty - item.quantity;
   if (delta === 0) return;
-  await DB.updateDoc('warehouseItems', item.id, { quantity: newQty });
+  await DB.updateDoc('warehouseItems', item.id, { quantity: newQty, updatedAt: DB.serverTimestamp() });
   await DB.addDoc('warehouseLogs', {
     itemId: item.id, itemName: item.name, previousQty: item.quantity, newQty, delta,
     staffName: state.user.name, createdAt: DB.serverTimestamp(),
@@ -1361,7 +1367,7 @@ async function handleForm(name, formData, formEl) {
         const unit = formData.get('unit').trim();
         const quantity = Number(formData.get('quantity')) || 0;
         const photo = formData.get('photo') || null;
-        const id = await DB.addDoc('warehouseItems', { name: itemName, category, unit, quantity, photo, createdAt: DB.serverTimestamp() });
+        const id = await DB.addDoc('warehouseItems', { name: itemName, category, unit, quantity, photo, createdAt: DB.serverTimestamp(), updatedAt: DB.serverTimestamp() });
         await DB.addDoc('warehouseLogs', { itemId: id, itemName, previousQty: 0, newQty: quantity, delta: quantity, staffName: state.user.name, createdAt: DB.serverTimestamp() });
         addNotification(`${state.user.name} เพิ่มรายการคลังสินค้า: ${itemName}`);
         closeModal();
