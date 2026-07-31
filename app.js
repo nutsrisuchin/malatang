@@ -1484,7 +1484,12 @@ async function handleForm(name, formData, formEl) {
 
 document.addEventListener('click', (e) => {
   const target = e.target.closest('[data-action]');
-  if (!target || target.matches('input[type="file"]')) return;
+  // Form controls (month/date pickers, selects, file inputs) dispatch their
+  // data-action on 'change' instead, below — reacting on 'click' too fires
+  // before the user picked anything, and for the schedule/financial month
+  // inputs that immediately calls render(), which replaces the input DOM
+  // node and closes the native picker the instant it opens.
+  if (!target || target.matches('input, select')) return;
   handleAction(target.dataset.action, { ...target.dataset }, target);
 });
 
