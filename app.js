@@ -23,7 +23,6 @@ const BREAK_HOURS = 1;
 const HOURLY_RATE = 40;
 const FOOD_ALLOWANCE = 50;
 const FOOD_ALLOWANCE_MIN_HOURS = 10; // paid when hoursWorked > this
-const TILL_BONUS = 50;
 
 const NAV_ITEMS = [
   { view: 'home', label: 'หน้าหลัก', icon: '🏠', min: 'employee' },
@@ -175,7 +174,7 @@ function canManageStaffMember(target) {
 
 function getAttendance(staffId, date) {
   const rec = state.attendance.find((a) => a.staffId === staffId && a.date === date);
-  return rec || { staffId, date, dayOff: false, closedTill: false, lateMinutes: 0, clockIn: null, clockOut: null };
+  return rec || { staffId, date, dayOff: false, lateMinutes: 0, clockIn: null, clockOut: null };
 }
 
 function isHoliday(dateStr) {
@@ -206,8 +205,8 @@ function getScheduledHours(dateStr) {
 }
 
 // A day's pay: ฿40/hour actually worked (a full day is 11 hours), ×1.5 on
-// a holiday, +฿50 food allowance when hoursWorked exceeds 10, +฿50 flat
-// bonus for closing the till. Being late simply reduces hours worked.
+// a holiday, +฿50 food allowance when hoursWorked exceeds 10. Being late
+// simply reduces hours worked.
 function computePay(staffId, dateStr) {
   const att = getAttendance(staffId, dateStr);
   if (att.dayOff) return 0;
@@ -217,7 +216,6 @@ function computePay(staffId, dateStr) {
   let pay = hoursWorked * HOURLY_RATE;
   if (isHoliday(dateStr)) pay *= 1.5;
   if (hoursWorked > FOOD_ALLOWANCE_MIN_HOURS) pay += FOOD_ALLOWANCE;
-  if (att.closedTill) pay += TILL_BONUS;
   return Math.round(pay);
 }
 
@@ -225,7 +223,7 @@ async function saveAttendanceException(staffId, date, patch) {
   const id = `${staffId}_${date}`;
   const current = getAttendance(staffId, date);
   const merged = { ...current, ...patch, staffId, date };
-  const isDefault = !merged.dayOff && !merged.closedTill && !(merged.lateMinutes > 0) && !merged.clockIn && !merged.clockOut;
+  const isDefault = !merged.dayOff && !(merged.lateMinutes > 0) && !merged.clockIn && !merged.clockOut;
   if (isDefault) {
     await DB.deleteDoc('attendance', id).catch(() => {});
   } else {
@@ -545,13 +543,11 @@ function renderTimesheetManager() {
           <div class="title">${escapeHtml(s.name)}</div>
           <div class="meta">
             ${att.dayOff ? '<span class="badge badge-muted">ลาวันนี้</span>' : '<span class="badge badge-success">เข้างาน</span>'}
-            ${att.closedTill ? '<span class="badge badge-warning">ปิดร้าน +50</span>' : ''}
             ${att.lateMinutes ? `<span class="badge badge-danger">สาย ${att.lateMinutes} นาที</span>` : ''}
           </div>
         </div>
         <div class="actions">
           <button class="btn btn-sm ${att.dayOff ? 'btn-outline' : 'btn-ghost'}" data-action="quick-toggle-dayoff" data-staff="${s.id}" data-date="${today}">ลา</button>
-          <button class="btn btn-sm ${att.closedTill ? 'btn-gold' : 'btn-ghost'}" data-action="quick-toggle-till" data-staff="${s.id}" data-date="${today}">ปิดร้าน</button>
           <button class="btn btn-sm btn-outline" data-action="open-schedule-cell-modal" data-staff="${s.id}" data-date="${today}">แก้ไข</button>
           ${canManageStaffMember(s) ? `<button class="btn btn-sm btn-ghost" data-action="delete-staff" data-id="${s.id}">ลบ</button>` : ''}
         </div>
@@ -596,9 +592,8 @@ function renderScheduleGrid(staffList, editable) {
       let cls = 'present', label = shiftText;
       if (att.dayOff) {
         cls = 'dayoff'; label = 'หยุด';
-      } else {
-        if (att.lateMinutes > 0) cls = 'late';
-        if (att.closedTill) label += ' ★';
+      } else if (att.lateMinutes > 0) {
+        cls = 'late';
       }
       const attrs = editable ? `data-action="open-schedule-cell-modal" data-staff="${s.id}" data-date="${date}" style="cursor:pointer"` : '';
       return `<td class="${isWeekend ? 'weekend' : ''}"><span class="schedule-cell ${cls}" ${attrs}>${label}</span></td>`;
@@ -849,7 +844,7 @@ function renderFinancial() {
     <div class="card">
       <h3>เงินเดือนโดยประมาณ — ${monthLabelThai(ym)}</h3>
       <p class="sub" style="margin-top:-4px">
-        อัตรา ฿${HOURLY_RATE}/ชม. · วันทำงานปกติ 11 ชม. = ฿${HOURLY_RATE * 11} · +฿${FOOD_ALLOWANCE} ค่าอาหารถ้าทำงานเกิน ${FOOD_ALLOWANCE_MIN_HOURS} ชม. · ×1.5 วันหยุดนักขัตฤกษ์ · +฿${TILL_BONUS} ปิดร้าน/นับเงิน
+        อัตรา ฿${HOURLY_RATE}/ชม. · วันทำงานปกติ 11 ชม. = ฿${HOURLY_RATE * 11} · +฿${FOOD_ALLOWANCE} ค่าอาหารถ้าทำงานเกิน ${FOOD_ALLOWANCE_MIN_HOURS} ชม. · ×1.5 วันหยุดนักขัตฤกษ์
       </p>
       <div style="overflow-x:auto">
         <table class="table-simple">
@@ -1126,7 +1121,6 @@ function openScheduleCellModal(staffId, date) {
     <p class="sub" style="margin-top:-8px">${formatDateThai(date)} · กะปกติ ${shift.start}-${shift.end}</p>
     <form data-form="schedule-cell" data-staff="${staffId}" data-date="${date}">
       <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" name="dayOff" style="width:20px;height:20px" ${att.dayOff ? 'checked' : ''} /> วันหยุด (ลา)</label>
-      <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:8px"><input type="checkbox" name="closedTill" style="width:20px;height:20px" ${att.closedTill ? 'checked' : ''} /> ปิดร้าน/นับเงิน (+฿50)</label>
       <div class="form-row" style="margin-top:12px">
         <div class="field"><label>เวลาเข้างานจริง</label><input type="time" name="clockIn" value="${att.clockIn || ''}" placeholder="${shift.start}" /></div>
         <div class="field"><label>เวลาออกงานจริง</label><input type="time" name="clockOut" value="${att.clockOut || ''}" placeholder="${shift.end}" /></div>
@@ -1211,15 +1205,9 @@ async function handleAction(action, data, el) {
         await saveAttendanceException(data.staff, data.date, { dayOff: !att.dayOff });
         return;
       }
-      case 'quick-toggle-till': {
-        if (!isManager()) return;
-        const att = getAttendance(data.staff, data.date);
-        await saveAttendanceException(data.staff, data.date, { closedTill: !att.closedTill });
-        return;
-      }
       case 'reset-schedule-cell': {
         if (!isManager()) return;
-        await saveAttendanceException(data.staff, data.date, { dayOff: false, closedTill: false, clockIn: null, clockOut: null, lateMinutes: 0 });
+        await saveAttendanceException(data.staff, data.date, { dayOff: false, clockIn: null, clockOut: null, lateMinutes: 0 });
         closeModal();
         toast('รีเซ็ตแล้ว', 'success');
         return;
@@ -1446,11 +1434,10 @@ async function handleForm(name, formData, formEl) {
         if (!isManager()) return;
         const staffId = formEl.dataset.staff, date = formEl.dataset.date;
         const dayOff = !!formData.get('dayOff');
-        const closedTill = !!formData.get('closedTill');
         const clockIn = formData.get('clockIn') || null;
         const clockOut = formData.get('clockOut') || null;
         const lateMinutes = Number(formData.get('lateMinutes')) || 0;
-        await saveAttendanceException(staffId, date, { dayOff, closedTill, clockIn, clockOut, lateMinutes });
+        await saveAttendanceException(staffId, date, { dayOff, clockIn, clockOut, lateMinutes });
         const staff = state.staff.find((s) => s.id === staffId);
         addNotification(`${state.user.name} แก้ไขเวลาของ ${staff ? staff.name : ''} วันที่ ${formatDateThai(date)}`);
         closeModal();
