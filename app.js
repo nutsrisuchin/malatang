@@ -54,6 +54,7 @@ const state = {
   financialMonth: currentYYYYMM(),
   categoryOpen: {},
   attendancePanelOpen: false,
+  restockExpanded: false,
 };
 
 let unsubscribers = [];
@@ -635,7 +636,7 @@ function renderWarehouse() {
     ${restockList.length ? `
     <div class="card">
       <h3>ควรสั่งเพิ่มเร็วๆ นี้</h3>
-      ${restockList.map((x) => `
+      ${(state.restockExpanded ? restockList : restockList.slice(0, 3)).map((x) => `
         <div class="list-row">
           <div class="info">
             <div class="title">${escapeHtml(x.item.name)}</div>
@@ -643,6 +644,10 @@ function renderWarehouse() {
           </div>
           <div class="badge badge-${x.info.level === 'low' ? 'danger' : 'warning'}">${x.info.level === 'low' ? 'ด่วน' : 'เฝ้าระวัง'}</div>
         </div>`).join('')}
+      ${restockList.length > 3 ? `
+        <button class="btn btn-sm btn-outline btn-block" data-action="toggle-restock-list" style="margin-top:8px">
+          ${state.restockExpanded ? '▴ ย่อ' : `▾ ดูเพิ่มเติม (${restockList.length - 3})`}
+        </button>` : ''}
     </div>` : ''}
     ${catNames.length ? catNames.map((cat) => renderWarehouseCategory(cat, categories[cat], canEdit)).join('') : '<div class="empty-state">ยังไม่มีรายการในคลัง</div>'}
   `;
@@ -1162,6 +1167,7 @@ async function handleAction(action, data, el) {
 
       case 'toggle-attendance-panel': state.attendancePanelOpen = !state.attendancePanelOpen; render(); return;
       case 'toggle-category': state.categoryOpen[data.cat] = !state.categoryOpen[data.cat]; render(); return;
+      case 'toggle-restock-list': state.restockExpanded = !state.restockExpanded; render(); return;
 
       case 'wh-category-toggle': {
         const newField = document.getElementById('wh-category-new-field');
