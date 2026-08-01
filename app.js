@@ -704,6 +704,7 @@ function renderAnalytics() {
   return `
     <div class="screen-header">
       <div><h2>วิเคราะห์คลังสินค้า</h2><div class="sub">อัตราการใช้เฉลี่ยและวันที่คาดว่าสินค้าจะหมด</div></div>
+      ${rows.length ? `<button class="btn btn-outline" data-action="export-warehouse-csv">⬇ ส่งออก CSV</button>` : ''}
     </div>
     <div class="card">
       ${rows.length ? rows.map(({ item, info }) => renderAnalyticsRow(item, info)).join('') : '<div class="empty-state">ยังไม่มีรายการในคลัง</div>'}
@@ -734,6 +735,95 @@ function renderAnalyticsRow(item, info) {
         ${info.trend ? `<span class="badge badge-${TREND_BADGE[info.trend]}">${TREND_LABEL[info.trend]}</span>` : ''}
       </div>
     </div>`;
+}
+
+// ============================================================
+// CSV export (warehouse analysis + full daily quantity history)
+// ============================================================
+
+function csvEscape(value) {
+  const s = value == null ? '' : String(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function formatDateStrDMY(dateStr) {
+  const [y, m, d] = dateStr.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// Two tables in one CSV: (1) current analysis — usage rate, trend,
+// predicted run-out — one row per existing item; (2) the full daily
+// quantity history pivoted wide (one row per item, one column per date
+// that had any update), reusing the same daily-snapshot logic that
+// feeds restockInfo(). Items that were later deleted still have their
+// warehouseLogs history, so they're included in table 2 (labelled
+// "ลบแล้ว") instead of being silently dropped.
+function exportWarehouseHistoryCsv() {
+  const items = [...state.warehouseItems].sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  const knownIds = new Set(items.map((i) => i.id));
+
+  const summaryHeader = ['ชื่อรายการ', 'หมวดหมู่', 'หน่วย', 'คงเหลือปัจจุบัน', 'อัตราการใช้เฉลี่ย/วัน', 'แนวโน้ม', 'เหลืออีกกี่วัน', 'คาดว่าจะหมดวันที่'];
+  const trendText = { up: 'ใช้เร็วขึ้น', down: 'ใช้ช้าลง', flat: 'คงที่' };
+  const summaryRows = items.map((item) => {
+    const info = restockInfo(item);
+    return [
+      item.name,
+      item.category || '',
+      item.unit || '',
+      item.quantity,
+      info.avgDailyUsage != null ? info.avgDailyUsage.toFixed(2) : '',
+      info.trend ? trendText[info.trend] : '',
+      info.daysRemaining != null ? info.daysRemaining.toFixed(1) : '',
+      info.daysRemaining != null ? formatDateStrDMY(addDaysToDateStr(todayStr(), Math.round(info.daysRemaining))) : '',
+    ];
+  });
+
+  const orphanIds = [...new Set(state.warehouseLogs.map((l) => l.itemId))].filter((id) => !knownIds.has(id));
+  const historyEntities = [
+    ...items.map((i) => ({ id: i.id, name: i.name, category: i.category || '' })),
+    ...orphanIds.map((id) => {
+      const anyLog = state.warehouseLogs.find((l) => l.itemId === id);
+      return { id, name: `${anyLog ? anyLog.itemName : id} (ลบแล้ว)`, category: '' };
+    }),
+  ];
+
+  const dateSet = new Set();
+  const perEntitySnapshots = new Map(); // id -> Map(date -> qty)
+  historyEntities.forEach((entity) => {
+    const snaps = dailyQuantitySnapshots({ id: entity.id });
+    const map = new Map();
+    snaps.forEach((s) => { map.set(s.date, s.qty); dateSet.add(s.date); });
+    perEntitySnapshots.set(entity.id, map);
+  });
+  const sortedDates = [...dateSet].sort();
+  const historyHeader = ['ชื่อรายการ', 'หมวดหมู่', ...sortedDates.map(formatDateStrDMY)];
+  const historyRows = historyEntities.map((entity) => {
+    const map = perEntitySnapshots.get(entity.id);
+    return [entity.name, entity.category, ...sortedDates.map((d) => (map.has(d) ? map.get(d) : ''))];
+  });
+
+  downloadCsv(`malatang-warehouse-analysis-${todayStr()}.csv`, [
+    ['สรุปการวิเคราะห์คลังสินค้า'],
+    summaryHeader,
+    ...summaryRows,
+    [],
+    ['ประวัติจำนวนคงเหลือรายวัน (รายการ x วันที่)'],
+    historyHeader,
+    ...historyRows,
+  ]);
 }
 
 // ============================================================
@@ -1168,6 +1258,12 @@ async function handleAction(action, data, el) {
       case 'toggle-attendance-panel': state.attendancePanelOpen = !state.attendancePanelOpen; render(); return;
       case 'toggle-category': state.categoryOpen[data.cat] = !state.categoryOpen[data.cat]; render(); return;
       case 'toggle-restock-list': state.restockExpanded = !state.restockExpanded; render(); return;
+
+      case 'export-warehouse-csv': {
+        if (!isManager()) return;
+        exportWarehouseHistoryCsv();
+        return;
+      }
 
       case 'wh-category-toggle': {
         const newField = document.getElementById('wh-category-new-field');
