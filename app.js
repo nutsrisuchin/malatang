@@ -55,6 +55,7 @@ const state = {
   notificationsLoadingMore: false,
   holidays: [],
   fixedCosts: {}, // { [yyyy-mm]: { rent, water, electricity } } — admin+ only
+  managerPay: {}, // { [staffId]: monthlySalary } — admin+ only
   scheduleMonth: currentYYYYMM(),
   financialMonth: currentYYYYMM(),
   categoryOpen: {},
@@ -223,6 +224,19 @@ function computePay(staffId, dateStr) {
   if (isHoliday(dateStr)) pay *= 1.5;
   if (hoursWorked > FOOD_ALLOWANCE_MIN_HOURS) pay += FOOD_ALLOWANCE;
   return Math.round(pay);
+}
+
+// Managers are on a flat monthly salary instead of the hourly formula
+// above. The base salary is paid in full regardless of days off; on top
+// of it, each day actually worked adds a flat ฿50 food allowance plus a
+// "1hr OT" bonus (her personal hourly-equivalent rate = salary/30/10).
+// On a holiday, that OT bonus is replaced by a full day (11h) at her
+// hourly-equivalent rate, ×1.5 — not just the usual +50/+OT combo.
+function computeManagerDayExtra(monthlySalary, dateStr, dayOff) {
+  if (dayOff || monthlySalary == null) return 0;
+  const hourlyEquivalent = monthlySalary / 30 / 10;
+  if (isHoliday(dateStr)) return hourlyEquivalent * 11 * 1.5;
+  return FOOD_ALLOWANCE + hourlyEquivalent;
 }
 
 async function saveAttendanceException(staffId, date, patch) {
@@ -958,6 +972,26 @@ function renderFinancial() {
   let payrollTotal = 0;
   const rows = payStaff.map((s) => {
     let daysWorked = 0, totalHours = 0, totalPay = 0;
+
+    if (s.role === 'manager') {
+      const monthlySalary = state.managerPay[s.id];
+      dates.forEach((d) => {
+        const att = getAttendance(s.id, d);
+        if (!att.dayOff) {
+          daysWorked++;
+          totalPay += computeManagerDayExtra(monthlySalary, d, false);
+        }
+      });
+      totalPay = monthlySalary == null ? 0 : Math.round((monthlySalary || 0) + totalPay);
+      payrollTotal += totalPay;
+      return `<tr>
+        <td>${escapeHtml(s.name)} <span class="tag-pill">เงินเดือน</span></td>
+        <td>${daysWorked} วัน</td>
+        <td>—</td>
+        <td>${monthlySalary == null ? '<span class="badge badge-warning">ยังไม่ได้ตั้งเงินเดือน</span>' : formatBaht(totalPay)}</td>
+      </tr>`;
+    }
+
     dates.forEach((d) => {
       const att = getAttendance(s.id, d);
       if (!att.dayOff) {
@@ -991,7 +1025,8 @@ function renderFinancial() {
     <div class="card">
       <h3>เงินเดือนโดยประมาณ — ${monthLabelThai(ym)}</h3>
       <p class="sub" style="margin-top:-4px">
-        อัตรา ฿${HOURLY_RATE}/ชม. · วันทำงานปกติ 11 ชม. = ฿${HOURLY_RATE * 11} · +฿${FOOD_ALLOWANCE} ค่าอาหารถ้าทำงานเกิน ${FOOD_ALLOWANCE_MIN_HOURS} ชม. · ×1.5 วันหยุดนักขัตฤกษ์
+        พนักงานทั่วไป: ฿${HOURLY_RATE}/ชม. · วันทำงานปกติ 11 ชม. = ฿${HOURLY_RATE * 11} · +฿${FOOD_ALLOWANCE} ค่าอาหารถ้าทำงานเกิน ${FOOD_ALLOWANCE_MIN_HOURS} ชม. · ×1.5 วันหยุดนักขัตฤกษ์<br>
+        ผู้จัดการ: เงินเดือนประจำ (ไม่หักแม้ลา) + ฿${FOOD_ALLOWANCE} ค่าอาหาร + OT 1 ชม. (เงินเดือน/30/10) ทุกวันที่มาทำงาน · วันหยุดนักขัตฤกษ์ได้ OT เต็มวัน (11 ชม.) ×1.5 แทน
       </p>
       <div style="overflow-x:auto">
         <table class="table-simple">
@@ -1088,12 +1123,17 @@ function openAddStaffModal() {
       <div class="field"><label>PIN (สำหรับเข้าสู่ระบบ, อย่างน้อย 6 หลัก)</label><input type="password" name="pin" inputmode="numeric" minlength="6" required /></div>
       <div class="form-row">
         <div class="field"><label>ตำแหน่ง</label>
-          <select name="role">${roleOptions.map((r) => `<option value="${r}">${ROLE_LABELS[r]}</option>`).join('')}</select>
+          <select name="role" ${isAdmin() ? 'data-action="staff-role-toggle"' : ''}>${roleOptions.map((r) => `<option value="${r}">${ROLE_LABELS[r]}</option>`).join('')}</select>
         </div>
         <div class="field"><label>ประเภทการจ้าง</label>
           <select name="employmentType"><option value="full-time">เต็มเวลา</option><option value="part-time">พาร์ทไทม์</option></select>
         </div>
       </div>
+      ${isAdmin() ? `
+        <div class="field" id="staff-monthly-salary-field" style="display:none">
+          <label>เงินเดือนประจำ (บาท) — สำหรับผู้จัดการเท่านั้น</label>
+          <input type="number" name="monthlySalary" min="0" />
+        </div>` : ''}
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" data-action="close-modal">ยกเลิก</button>
         <button type="submit" class="btn btn-primary">บันทึก</button>
@@ -1113,7 +1153,7 @@ function openEditStaffModal(id) {
       <div class="field"><label>ชื่อ</label><input type="text" name="name" value="${escapeHtml(s.name)}" required /></div>
       <div class="form-row">
         <div class="field"><label>ตำแหน่ง</label>
-          <select name="role" ${canChangeRole ? '' : 'disabled'}>
+          <select name="role" ${canChangeRole ? (isAdmin() ? 'data-action="staff-role-toggle"' : '') : 'disabled'}>
             ${roleChoices.map((r) => `<option value="${r}" ${s.role === r ? 'selected' : ''}>${ROLE_LABELS[r]}</option>`).join('')}
           </select>
         </div>
@@ -1124,6 +1164,11 @@ function openEditStaffModal(id) {
           </select>
         </div>
       </div>
+      ${isAdmin() ? `
+        <div class="field" id="staff-monthly-salary-field" style="display:${s.role === 'manager' ? 'block' : 'none'}">
+          <label>เงินเดือนประจำ (บาท) — สำหรับผู้จัดการเท่านั้น</label>
+          <input type="number" name="monthlySalary" min="0" value="${state.managerPay[s.id] != null ? state.managerPay[s.id] : ''}" />
+        </div>` : ''}
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:4px">
         <input type="checkbox" name="active" style="width:20px;height:20px" ${s.active !== false ? 'checked' : ''} /> เปิดใช้งานอยู่
       </label>
@@ -1370,6 +1415,12 @@ async function handleAction(action, data, el) {
         return;
       }
 
+      case 'staff-role-toggle': {
+        const salaryField = document.getElementById('staff-monthly-salary-field');
+        if (salaryField) salaryField.style.display = el.value === 'manager' ? 'block' : 'none';
+        return;
+      }
+
       case 'open-rename-category-modal': {
         if (!isManager()) return;
         openRenameCategoryModal(data.cat);
@@ -1523,6 +1574,10 @@ async function handleForm(name, formData, formEl) {
         if (state.user.role === 'manager' && role !== 'employee') { toast('ผู้จัดการเพิ่มได้เฉพาะพนักงานทั่วไป', 'error'); return; }
         const { uid } = await DB.createStaffAuthAccount(staffName, pin);
         await DB.setDoc('staff', uid, { name: staffName, role, employmentType, active: true, createdAt: DB.serverTimestamp() });
+        if (isAdmin() && role === 'manager') {
+          const monthlySalary = Number(formData.get('monthlySalary')) || 0;
+          await DB.setDoc('managerPay', uid, { monthlySalary });
+        }
         addNotification(`${state.user.name} เพิ่มพนักงานใหม่: ${staffName}`);
         closeModal();
         toast('เพิ่มพนักงานสำเร็จ', 'success');
@@ -1539,6 +1594,10 @@ async function handleForm(name, formData, formEl) {
         const employmentType = formData.get('employmentType');
         const active = !!formData.get('active');
         await DB.updateDoc('staff', id, { name: staffName, role, employmentType, active });
+        if (isAdmin() && role === 'manager' && formData.has('monthlySalary')) {
+          const monthlySalary = Number(formData.get('monthlySalary')) || 0;
+          await DB.setDoc('managerPay', id, { monthlySalary });
+        }
         addNotification(`${state.user.name} แก้ไขข้อมูลพนักงาน: ${staffName}`);
         closeModal();
         toast('บันทึกแล้ว', 'success');
@@ -1758,6 +1817,11 @@ async function startSubscriptions() {
     unsubscribers.push(DB.subscribeCollection('fixedCosts', (items) => {
       state.fixedCosts = {};
       items.forEach((i) => { state.fixedCosts[i.id] = i; });
+      render();
+    }));
+    unsubscribers.push(DB.subscribeCollection('managerPay', (items) => {
+      state.managerPay = {};
+      items.forEach((i) => { state.managerPay[i.id] = i.monthlySalary; });
       render();
     }));
   }
