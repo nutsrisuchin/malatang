@@ -13,6 +13,7 @@ const EMPLOYMENT_LABELS = { 'full-time': 'เต็มเวลา', 'part-time'
 const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const THAI_MONTHS_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const THAI_WEEKDAYS_SHORT = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+const NOTIFICATIONS_PAGE_SIZE = 200;
 
 // Shift schedule: weekdays run 10:00-22:00, weekends 09:00-21:00 — both a
 // 12-hour span with a 1-hour unpaid break baked in, so a full normal day is
@@ -48,7 +49,10 @@ const state = {
   warehouseLogs: [],
   routines: [],
   routineInspections: [],
-  notifications: [],
+  notifications: [], // live-synced, capped to the most recent NOTIFICATIONS_PAGE_SIZE
+  notificationsOlder: [], // manually paged-in via "โหลดเพิ่มเติม", one-time fetches
+  notificationsExhausted: false,
+  notificationsLoadingMore: false,
   holidays: [],
   fixedCosts: {}, // { [yyyy-mm]: { rent, water, electricity } } — admin+ only
   scheduleMonth: currentYYYYMM(),
@@ -1034,10 +1038,16 @@ function renderFinancial() {
 // ============================================================
 
 function renderNotifications() {
-  const items = [...state.notifications].sort(byCreatedAtDesc);
+  const items = [...state.notifications, ...state.notificationsOlder].sort(byCreatedAtDesc);
   return `
     <div class="screen-header"><div><h2>แจ้งเตือน</h2><div class="sub">กิจกรรมทั้งหมดในระบบ</div></div></div>
-    <div class="card">${items.length ? items.map(renderNotificationItem).join('') : '<div class="empty-state">ยังไม่มีการแจ้งเตือน</div>'}</div>
+    <div class="card">
+      ${items.length ? items.map(renderNotificationItem).join('') : '<div class="empty-state">ยังไม่มีการแจ้งเตือน</div>'}
+      ${!state.notificationsExhausted && items.length > 0 ? `
+        <button class="btn btn-outline btn-block" style="margin-top:12px" data-action="load-more-notifications" ${state.notificationsLoadingMore ? 'disabled' : ''}>
+          ${state.notificationsLoadingMore ? 'กำลังโหลด...' : 'โหลดเพิ่มเติม'}
+        </button>` : ''}
+    </div>
   `;
 }
 
@@ -1326,6 +1336,28 @@ async function handleAction(action, data, el) {
       case 'export-warehouse-csv': {
         if (!isManager()) return;
         exportWarehouseHistoryCsv();
+        return;
+      }
+
+      case 'load-more-notifications': {
+        if (state.notificationsLoadingMore || state.notificationsExhausted) return;
+        state.notificationsLoadingMore = true;
+        render();
+        try {
+          const loaded = [...state.notifications, ...state.notificationsOlder].sort(byCreatedAtDesc);
+          const cursor = loaded.length ? loaded[loaded.length - 1].createdAt : null;
+          const more = await DB.fetchPage('notifications', {
+            orderByField: 'createdAt', limit: NOTIFICATIONS_PAGE_SIZE, startAfterValue: cursor,
+          });
+          state.notificationsOlder = [...state.notificationsOlder, ...more];
+          if (more.length < NOTIFICATIONS_PAGE_SIZE) state.notificationsExhausted = true;
+        } catch (err) {
+          console.error(err);
+          toast('โหลดข้อมูลเพิ่มเติมไม่สำเร็จ', 'error');
+        } finally {
+          state.notificationsLoadingMore = false;
+          render();
+        }
         return;
       }
 
@@ -1710,13 +1742,16 @@ function teardownSubscriptions() {
 
 async function startSubscriptions() {
   teardownSubscriptions();
+  state.notificationsOlder = [];
+  state.notificationsExhausted = false;
+  state.notificationsLoadingMore = false;
   unsubscribers.push(DB.subscribeCollection('staff', (items) => { state.staff = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('attendance', (items) => { state.attendance = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('warehouseItems', (items) => { state.warehouseItems = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('warehouseLogs', (items) => { state.warehouseLogs = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('routines', (items) => { state.routines = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('routineInspections', (items) => { state.routineInspections = items; render(); }));
-  unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }, { orderByField: 'createdAt', limit: 200 }));
+  unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }, { orderByField: 'createdAt', limit: NOTIFICATIONS_PAGE_SIZE }));
   unsubscribers.push(DB.subscribeCollection('holidays', (items) => { state.holidays = items; render(); }));
   if (roleAtLeast(state.user.role, 'admin')) {
     unsubscribers.push(DB.subscribeCollection('fixedCosts', (items) => {

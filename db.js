@@ -111,4 +111,19 @@ const DB = {
     const doc = await firestore.collection(collectionName).doc(id).get();
     return doc.exists ? { id: doc.id, ...doc.data() } : null;
   },
+
+  // One-time (non-live) page fetch for "load more" beyond a capped live
+  // subscription. startAfterValue must be the raw field value (e.g. the
+  // Firestore Timestamp already held on the last-loaded doc) for
+  // orderByField, not a converted number/string.
+  async fetchPage(collectionName, { orderByField, orderDirection = "desc", limit = 50, startAfterValue } = {}) {
+    let ref = firestore.collection(collectionName);
+    if (orderByField) ref = ref.orderBy(orderByField, orderDirection);
+    if (startAfterValue != null) ref = ref.startAfter(startAfterValue);
+    if (limit) ref = ref.limit(limit);
+    const snap = await ref.get();
+    const items = [];
+    snap.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+    return items;
+  },
 };
