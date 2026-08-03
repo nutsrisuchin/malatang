@@ -50,6 +50,7 @@ const state = {
   routineInspections: [],
   notifications: [],
   holidays: [],
+  fixedCosts: {}, // { [yyyy-mm]: { rent, water, electricity } } — admin+ only
   scheduleMonth: currentYYYYMM(),
   financialMonth: currentYYYYMM(),
   categoryOpen: {},
@@ -611,8 +612,42 @@ function renderScheduleGrid(staffList, editable) {
       <div class="schedule-scroll">
         <table class="schedule-grid"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>
       </div>
+      ${renderScheduleSummary(staffList, ym)}
     </div>
   `;
+}
+
+function renderScheduleSummary(staffList, ym) {
+  const dates = monthDates(ym);
+  const rows = staffList.map((s) => {
+    let daysWorked = 0, daysOff = 0, daysLate = 0, totalHours = 0;
+    dates.forEach((date) => {
+      const att = getAttendance(s.id, date);
+      if (att.dayOff) {
+        daysOff++;
+      } else {
+        daysWorked++;
+        if (att.lateMinutes > 0) daysLate++;
+        totalHours += Math.max(0, getScheduledHours(date) - (att.lateMinutes || 0) / 60);
+      }
+    });
+    return `<tr>
+      <td>${escapeHtml(s.name)}</td>
+      <td>${daysWorked}</td>
+      <td>${daysOff}</td>
+      <td>${daysLate}</td>
+      <td>${totalHours.toFixed(1)}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div style="overflow-x:auto;margin-top:16px">
+      <h3 style="margin:0 0 8px">สรุปประจำเดือน</h3>
+      <table class="table-simple">
+        <thead><tr><th>ชื่อ</th><th>วันทำงาน</th><th>วันหยุด</th><th>มาสาย (วัน)</th><th>ชั่วโมงรวม</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="5">ไม่มีพนักงาน</td></tr>'}</tbody>
+      </table>
+    </div>`;
 }
 
 // ============================================================
@@ -915,21 +950,33 @@ function renderFinancial() {
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
   const dates = monthDates(ym);
 
+  let payrollTotal = 0;
   const rows = payStaff.map((s) => {
-    let totalHours = 0, totalPay = 0;
+    let daysWorked = 0, totalHours = 0, totalPay = 0;
     dates.forEach((d) => {
       const att = getAttendance(s.id, d);
-      if (!att.dayOff) totalHours += Math.max(0, getScheduledHours(d) - (att.lateMinutes || 0) / 60);
+      if (!att.dayOff) {
+        daysWorked++;
+        totalHours += Math.max(0, getScheduledHours(d) - (att.lateMinutes || 0) / 60);
+      }
       totalPay += computePay(s.id, d);
     });
+    payrollTotal += totalPay;
     return `<tr>
       <td>${escapeHtml(s.name)}</td>
+      <td>${daysWorked} วัน</td>
       <td>${totalHours.toFixed(1)} ชม.</td>
       <td>${formatBaht(totalPay)}</td>
     </tr>`;
   }).join('');
 
   const holidaysSorted = [...state.holidays].sort((a, b) => a.date.localeCompare(b.date));
+
+  const fc = state.fixedCosts[ym] || {};
+  const rent = Number(fc.rent) || 0;
+  const water = Number(fc.water) || 0;
+  const electricity = Number(fc.electricity) || 0;
+  const fixedTotal = rent + water + electricity;
 
   return `
     <div class="screen-header">
@@ -943,10 +990,27 @@ function renderFinancial() {
       </p>
       <div style="overflow-x:auto">
         <table class="table-simple">
-          <thead><tr><th>ชื่อ</th><th>ชั่วโมงรวม</th><th>รวมประมาณการ</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="3">ยังไม่มีพนักงาน</td></tr>'}</tbody>
+          <thead><tr><th>ชื่อ</th><th>วันทำงาน</th><th>ชั่วโมงรวม</th><th>รวมประมาณการ</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">ยังไม่มีพนักงาน</td></tr>'}</tbody>
+          ${rows ? `<tfoot><tr><td colspan="3" style="font-weight:700">รวมเงินเดือนทั้งหมด</td><td style="font-weight:700">${formatBaht(payrollTotal)}</td></tr></tfoot>` : ''}
         </table>
       </div>
+    </div>
+    <div class="card">
+      <h3>ต้นทุนคงที่โดยประมาณ — ${monthLabelThai(ym)}</h3>
+      <p class="sub" style="margin-top:-4px">กรอกค่าเช่าและค่าสาธารณูปโภคของเดือนนี้ เพื่อประเมินต้นทุนคงที่รวม</p>
+      <form data-form="save-fixed-costs" class="form-row" style="align-items:flex-end">
+        <div class="field"><label>ค่าเช่า (บาท)</label><input type="number" name="rent" min="0" value="${rent || ''}" /></div>
+        <div class="field"><label>ค่าน้ำ (บาท)</label><input type="number" name="water" min="0" value="${water || ''}" /></div>
+        <div class="field"><label>ค่าไฟ (บาท)</label><input type="number" name="electricity" min="0" value="${electricity || ''}" /></div>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </form>
+      <table class="table-simple" style="margin-top:12px">
+        <tbody>
+          <tr><td>รวมต้นทุนคงที่ (ค่าเช่า+ค่าน้ำ+ค่าไฟ)</td><td style="font-weight:700">${formatBaht(fixedTotal)}</td></tr>
+          <tr><td style="font-weight:700">รวมต้นทุนทั้งหมด (เงินเดือน+ต้นทุนคงที่)</td><td style="font-weight:700">${formatBaht(payrollTotal + fixedTotal)}</td></tr>
+        </tbody>
+      </table>
     </div>
     <div class="card">
       <h3>วันหยุดนักขัตฤกษ์ (จ่าย 1.5 เท่า)</h3>
@@ -1558,6 +1622,16 @@ async function handleForm(name, formData, formEl) {
         return;
       }
 
+      case 'save-fixed-costs': {
+        if (!isAdmin()) return;
+        const rent = Number(formData.get('rent')) || 0;
+        const water = Number(formData.get('water')) || 0;
+        const electricity = Number(formData.get('electricity')) || 0;
+        await DB.setDoc('fixedCosts', state.financialMonth, { rent, water, electricity, updatedAt: DB.serverTimestamp() });
+        toast('บันทึกต้นทุนคงที่แล้ว', 'success');
+        return;
+      }
+
       default:
         console.warn('[handleForm] unhandled form:', name);
     }
@@ -1644,6 +1718,13 @@ async function startSubscriptions() {
   unsubscribers.push(DB.subscribeCollection('routineInspections', (items) => { state.routineInspections = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('holidays', (items) => { state.holidays = items; render(); }));
+  if (roleAtLeast(state.user.role, 'admin')) {
+    unsubscribers.push(DB.subscribeCollection('fixedCosts', (items) => {
+      state.fixedCosts = {};
+      items.forEach((i) => { state.fixedCosts[i.id] = i; });
+      render();
+    }));
+  }
 }
 
 DB.onAuthStateChanged(async (fbUser) => {

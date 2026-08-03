@@ -97,5 +97,10 @@ service cloud.firestore {
       allow read: if isEmployee();
       allow write: if isAdmin();
     }
+
+    // ---------- fixed costs (rent/water/electricity), one doc per month ----------
+    match /fixedCosts/{monthId} {
+      allow read, write: if isAdmin();
+    }
   }
 }
