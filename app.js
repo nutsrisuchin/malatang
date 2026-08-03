@@ -1716,7 +1716,7 @@ async function startSubscriptions() {
   unsubscribers.push(DB.subscribeCollection('warehouseLogs', (items) => { state.warehouseLogs = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('routines', (items) => { state.routines = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('routineInspections', (items) => { state.routineInspections = items; render(); }));
-  unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }));
+  unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }, { orderByField: 'createdAt', limit: 200 }));
   unsubscribers.push(DB.subscribeCollection('holidays', (items) => { state.holidays = items; render(); }));
   if (roleAtLeast(state.user.role, 'admin')) {
     unsubscribers.push(DB.subscribeCollection('fixedCosts', (items) => {

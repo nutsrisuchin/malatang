@@ -72,9 +72,14 @@ const DB = {
     return firebase.firestore.FieldValue.increment(n);
   },
 
-  subscribeCollection(collectionName, onData, orderByField) {
+  // options: { orderByField, orderDirection ("asc"/"desc", default "desc"), limit }
+  // Passing a limit caps both the initial read and the live-sync window to
+  // that many docs (most-recent-first when orderByField is given) instead
+  // of the whole collection, which matters for collections that only grow.
+  subscribeCollection(collectionName, onData, options = {}) {
     let ref = firestore.collection(collectionName);
-    if (orderByField) ref = ref.orderBy(orderByField, "desc");
+    if (options.orderByField) ref = ref.orderBy(options.orderByField, options.orderDirection || "desc");
+    if (options.limit) ref = ref.limit(options.limit);
     return ref.onSnapshot(
       (snap) => {
         const items = [];
