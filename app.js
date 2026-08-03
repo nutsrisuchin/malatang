@@ -491,7 +491,8 @@ function renderSidebarNav() {
 
 function renderHome() {
   const today = todayStr();
-  const activeStaff = state.staff.filter((s) => s.active !== false);
+  // Same exclusion as ลงเวลา/การเงิน — Admins/Owner aren't hourly scheduled staff.
+  const activeStaff = state.staff.filter((s) => s.active !== false && (s.role === 'employee' || s.role === 'manager'));
   const presentCount = activeStaff.filter((s) => !getAttendance(s.id, today).dayOff).length;
   const dueRoutines = state.routines.filter((r) => routineStatus(r).due).length;
   const overdueRoutines = state.routines.filter((r) => routineStatus(r).overdue).length;
