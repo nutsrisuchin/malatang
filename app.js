@@ -24,6 +24,8 @@ const BREAK_HOURS = 1;
 const HOURLY_RATE = 40;
 const FOOD_ALLOWANCE = 50;
 const FOOD_ALLOWANCE_MIN_HOURS = 10; // paid when hoursWorked > this
+const MANAGER_DILIGENCE_BONUS = 500; // เบี้ยขยัน — once per month, if she qualifies
+const MANAGER_DILIGENCE_MAX_DAYS_OFF = 4; // forfeited once ลา days exceed this
 
 const NAV_ITEMS = [
   { view: 'home', label: 'หน้าหลัก', icon: '🏠', min: 'employee' },
@@ -975,14 +977,18 @@ function renderFinancial() {
 
     if (s.role === 'manager') {
       const monthlySalary = state.managerPay[s.id];
+      let daysOff = 0;
       dates.forEach((d) => {
         const att = getAttendance(s.id, d);
-        if (!att.dayOff) {
+        if (att.dayOff) {
+          daysOff++;
+        } else {
           daysWorked++;
           totalPay += computeManagerDayExtra(monthlySalary, d, false);
         }
       });
-      totalPay = monthlySalary == null ? 0 : Math.round((monthlySalary || 0) + totalPay);
+      const diligenceBonus = daysOff <= MANAGER_DILIGENCE_MAX_DAYS_OFF ? MANAGER_DILIGENCE_BONUS : 0;
+      totalPay = monthlySalary == null ? 0 : Math.round((monthlySalary || 0) + totalPay + diligenceBonus);
       payrollTotal += totalPay;
       return `<tr>
         <td>${escapeHtml(s.name)} <span class="tag-pill">เงินเดือน</span></td>
@@ -1026,7 +1032,7 @@ function renderFinancial() {
       <h3>เงินเดือนโดยประมาณ — ${monthLabelThai(ym)}</h3>
       <p class="sub" style="margin-top:-4px">
         พนักงานทั่วไป: ฿${HOURLY_RATE}/ชม. · วันทำงานปกติ 11 ชม. = ฿${HOURLY_RATE * 11} · +฿${FOOD_ALLOWANCE} ค่าอาหารถ้าทำงานเกิน ${FOOD_ALLOWANCE_MIN_HOURS} ชม. · ×1.5 วันหยุดนักขัตฤกษ์<br>
-        ผู้จัดการ: เงินเดือนประจำ (ไม่หักแม้ลา) + ฿${FOOD_ALLOWANCE} ค่าอาหาร + OT 1 ชม. (เงินเดือน/30/10) ทุกวันที่มาทำงาน · วันหยุดนักขัตฤกษ์ได้ OT เต็มวัน (11 ชม.) ×1.5 แทน
+        ผู้จัดการ: เงินเดือนประจำ (ไม่หักแม้ลา) + ฿${FOOD_ALLOWANCE} ค่าอาหาร + OT 1 ชม. (เงินเดือน/30/10) ทุกวันที่มาทำงาน · วันหยุดพิเศษได้ OT เต็มวัน (11 ชม.) ×1.5 · +฿${MANAGER_DILIGENCE_BONUS} เบี้ยขยัน/เดือน ถ้าลาไม่เกิน ${MANAGER_DILIGENCE_MAX_DAYS_OFF} วัน
       </p>
       <div style="overflow-x:auto">
         <table class="table-simple">
