@@ -687,7 +687,10 @@ function renderWarehouse() {
   return `
     <div class="screen-header">
       <div><h2>คลังสินค้า</h2><div class="sub">สต๊อกวัตถุดิบและอุปกรณ์</div></div>
-      ${canEdit ? `<button class="btn btn-primary" data-action="open-add-warehouse-modal">+ เพิ่มรายการ</button>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${state.warehouseItems.length ? `<button class="btn btn-outline" data-action="export-inventory-csv">⬇ ส่งออก Excel</button>` : ''}
+        ${canEdit ? `<button class="btn btn-primary" data-action="open-add-warehouse-modal">+ เพิ่มรายการ</button>` : ''}
+      </div>
     </div>
     ${restockList.length ? `
     <div class="card">
@@ -818,6 +821,18 @@ function downloadCsv(filename, rows) {
 function formatDateStrDMY(dateStr) {
   const [y, m, d] = dateStr.split('-');
   return `${d}/${m}/${y}`;
+}
+
+// Plain current-stock snapshot for the คลังสินค้า page — one row per
+// item as it stands right now, not history or usage-rate analysis
+// (that richer export lives on วิเคราะห์คลังสินค้า, see below).
+function exportInventoryCsv() {
+  const items = [...state.warehouseItems].sort((a, b) => (a.category || '').localeCompare(b.category || '', 'th') || a.name.localeCompare(b.name, 'th'));
+  const rows = [
+    ['ชื่อรายการ', 'หมวดหมู่', 'จำนวนคงเหลือ', 'หน่วย', 'อัปเดตล่าสุด'],
+    ...items.map((item) => [item.name, item.category || '', item.quantity, item.unit || '', item.updatedAt ? formatDateDMY(item.updatedAt) : '']),
+  ];
+  downloadCsv(`malatang-inventory-${todayStr()}.csv`, rows);
 }
 
 // Two tables in one CSV: (1) current analysis — usage rate, trend,
@@ -1384,6 +1399,11 @@ async function handleAction(action, data, el) {
       case 'toggle-attendance-panel': state.attendancePanelOpen = !state.attendancePanelOpen; render(); return;
       case 'toggle-category': state.categoryOpen[data.cat] = !state.categoryOpen[data.cat]; render(); return;
       case 'toggle-restock-list': state.restockExpanded = !state.restockExpanded; render(); return;
+
+      case 'export-inventory-csv': {
+        exportInventoryCsv();
+        return;
+      }
 
       case 'export-warehouse-csv': {
         if (!isManager()) return;
