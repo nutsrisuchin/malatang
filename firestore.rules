@@ -107,5 +107,12 @@ service cloud.firestore {
     match /managerPay/{staffId} {
       allow read, write: if isAdmin();
     }
+
+    // ---------- work-rules acknowledgment — everyone can read (for the
+    // manager compliance list), but only write their own doc ----------
+    match /ruleAcknowledgments/{staffId} {
+      allow read: if isEmployee();
+      allow write: if isEmployee() && request.auth.uid == staffId;
+    }
   }
 }

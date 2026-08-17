@@ -33,9 +33,87 @@ const NAV_ITEMS = [
   { view: 'warehouse', label: 'คลังสินค้า', icon: '📦', min: 'employee' },
   { view: 'analytics', label: 'วิเคราะห์คลังสินค้า', icon: '📊', min: 'manager' },
   { view: 'checklist', label: 'เช็คลิสต์', icon: '✅', min: 'employee' },
+  { view: 'rules', label: 'กฎระเบียบ', icon: '📜', min: 'employee' },
   { view: 'admin', label: 'แอดมิน', icon: '⚙️', min: 'admin' },
   { view: 'financial', label: 'การเงิน', icon: '💰', min: 'admin' },
   { view: 'notifications', label: 'แจ้งเตือน', icon: '🔔', min: 'employee' },
+];
+
+// Bump this string whenever WORK_RULES_SECTIONS' text actually changes —
+// everyone's stored acknowledgment is compared against it, so a bump means
+// the whole staff needs to re-acknowledge the updated rules.
+const WORK_RULES_VERSION = '2026-08-17';
+
+// From กฎระเบียบการทำงาน-หมาล่าทั่งระยอง.pdf
+const WORK_RULES_SECTIONS = [
+  { title: '1. เวลาทำการร้าน (เปิด–ปิด)', items: [
+    'วันจันทร์–ศุกร์: เปิด 11:30 น. / ปิด 21:00 น.',
+    'วันเสาร์–อาทิตย์: เปิด 11:00 น. / ปิด 20:00 น.',
+    'Delivery: เปิดรับออเดอร์ 11:00 น.',
+  ]},
+  { title: '2. เวลาเข้า–เลิกงานของพนักงาน', items: [
+    'วันจันทร์–ศุกร์: เข้างาน 10:00 น. เลิกงาน 22:00 น. (4 ทุ่ม)',
+    'วันเสาร์–อาทิตย์: เข้างาน 09:00 น. เลิกงาน 21:00 น. (3 ทุ่ม)',
+    'หากปฏิบัติงานหรือเก็บร้านเรียบร้อยก่อนเวลาเลิกงานที่กำหนด สามารถกลับก่อนเวลาได้',
+    'มาสายไม่เกิน 10 นาที → ได้รับค่า O.T. 40 บาท',
+    'มาสายเกิน 10 นาที แต่ไม่เกิน 30 นาที → ได้รับค่า O.T. 20 บาท',
+    'หมายเหตุ: หากมาสายบ่อยครั้งติดต่อกันหลายวัน จะได้รับใบเตือนเป็นลายลักษณ์อักษร หากทราบล่วงหน้าว่าจะมาสายเนื่องจากติดธุระ ให้แจ้งในกลุ่มไลน์ทันที',
+  ]},
+  { title: '3. การแต่งกาย', items: [
+    'พนักงานต้องสวมหมวกและผ้ากันเปื้อนตลอดเวลาที่ปฏิบัติงาน',
+    'สามารถถอดหมวกและผ้ากันเปื้อนได้เฉพาะช่วงเวลาพักเบรกเท่านั้น',
+  ]},
+  { title: '4. การลางาน', items: [
+    'ลาป่วย: แจ้งล่วงหน้าอย่างน้อย 3 ชั่วโมงก่อนเวลาเข้างาน',
+    'ลากิจ: แจ้งล่วงหน้า 1–3 วัน',
+    'การแจ้งลาออก (ต้องแจ้งล่วงหน้า 1 เดือน)',
+    'หมายเหตุ: หยุดงานโดยไม่แจ้งครั้งแรก → ตักเตือนด้วยวาจา · หยุดงานโดยไม่แจ้งครั้งต่อไป → ได้รับใบเตือนเป็นลายลักษณ์อักษร · หากได้รับใบเตือนครบ 3 ใบ มีผลให้เลิกจ้างทันที',
+  ]},
+  { title: '5. วันหยุดและเวลาพัก', items: [
+    'หยุดงานตามตารางที่บริษัทจัดให้',
+    'พักได้คนละ 1 ชั่วโมงตามเวลาที่กำหนด หากพักเกินเวลาที่กำหนดหักเงินตามนาทีที่พักเกิน',
+    'ห้ามรับประทานอาหารนอกเหนือช่วงเวลาพัก',
+    'ไม่ควรออกไปทำธุระส่วนตัวนอกเวลาพัก หากมีความจำเป็นให้แจ้งหัวหน้างานก่อนทุกครั้ง',
+  ]},
+  { title: '6. การปฏิบัติตัวระหว่างทำงาน', items: [
+    'ห้ามด่าหรือว่ากันในที่ทำงาน การทำงานเป็นทีมต้องรักษาน้ำใจกัน หากพบเจอจะส่งใบเตือนและยกเลิกการจ้างทันที',
+    'หากมีปัญหาภายในร้าน ห้ามคุยกันเอง ให้แจ้งผู้จัดการหรือเจ้าของร้านเท่านั้น เพื่อช่วยกันแก้ไขและหาทางออก',
+    'ห้ามสูบบุหรี่/ดื่มแอลกอฮอล์ในร้านขณะปฏิบัติงาน',
+    'ห้ามเล่นโทรศัพท์ระหว่างทำงาน ยกเว้นกรณีไม่มีลูกค้าหรือช่วงเวลาพัก',
+    'ห้ามหยอกล้อกันในระหว่างเวลางาน',
+    'ไม่พูดคุยเสียงดังเกินไป',
+    'ไม่เปิดเพลงเสียงดังเกินไป',
+    'ห้ามนอนหลับในเวลางาน',
+    'ห้ามประกอบอาหารอื่นนอกเหนือเมนูร้าน เว้นแต่ได้รับคำสั่งให้ทำ',
+  ]},
+  { title: '7. สิทธิ์ส่วนลดพนักงาน', items: [
+    'พนักงาน 1 คน มีสิทธิ์ใช้ส่วนลดได้ 50% แต่ไม่เกิน 100 บาทต่อวัน',
+    'ห้ามใช้สิทธิ์ส่วนลดแทนกัน',
+    'น้ำจิ้มมีไว้สำหรับจำหน่าย ไม่ใช่ของแจกฟรี หากต้องการรับประทานต้องซื้อ',
+  ]},
+  { title: '8. การปรับอุณหภูมิเครื่องปรับอากาศ', items: [
+    'โซนที่นั่งลูกค้า: ไม่ควรต่ำกว่า 23 องศา',
+    'โซนเคาน์เตอร์: ไม่ควรต่ำกว่า 25 องศา',
+    'โซนครัว: ไม่ควรต่ำกว่า 23 องศา',
+    'หากพบว่าเครื่องปรับอากาศจุดใดไม่เย็น ให้รีบแจ้งหัวหน้างานทันที',
+  ]},
+  { title: '9. ความรับผิดชอบต่อข้อผิดพลาดในการทำงาน', items: [
+    'การทำออเดอร์ผิดพลาดหรือจัดส่งไม่ครบ หากเกิดขึ้นบ่อยครั้ง อาจถูกหักเงินตามมูลค่าของออเดอร์นั้น',
+    'การสั่งวัตถุดิบผิดหรือสั่งไม่ครบจนส่งผลให้ของไม่พอขาย พนักงานต้องรับผิดชอบตามมูลค่าของที่เสียหาย',
+    'ห้ามนำทรัพย์สินร้าน (วัตถุดิบ อุปกรณ์) ออกนอกร้านโดยไม่ได้รับอนุญาต',
+  ]},
+  { title: '10. ความสะอาด', items: [
+    'พนักงานต้องตัดเล็บให้สั้นอยู่เสมอ ห้ามไว้เล็บยาวและห้ามติดเล็บปลอม เพื่อความสะอาดและความปลอดภัยในการปฏิบัติงานกับอาหาร',
+    'พนักงานที่มีผมยาวต้องมัดผมให้เรียบร้อยตลอดเวลาปฏิบัติงาน เพื่อป้องกันเส้นผมหล่นปนเปื้อนในอาหารของลูกค้า',
+    'ล้างมือก่อนเริ่มงานและหลังเข้าห้องน้ำ',
+  ]},
+  { title: '11. มาตรฐานการทำอาหาร', items: [
+    'การทำเมนูทุกครั้งต้องใช้แก้วตวงและช้อนตวงตามสูตรที่กำหนดเท่านั้น ห้ามกะปริมาณเอง แต่ต้องยึดตามสูตรเป็นหลัก',
+    'ห้ามเปลี่ยนแปลงสูตรหรือส่วนผสมเองโดยไม่ได้รับอนุญาตจากเจ้าของร้าน',
+    'ล้างผัก เนื้อสัตว์ และวัตถุดิบทุกชนิดให้สะอาดก่อนนำมาปรุง',
+    'แยกเขียง/มีด สำหรับของดิบและของสุกอย่างชัดเจน ห้ามใช้ปนกัน',
+    'การจัดเก็บวัตถุดิบ (แยกดิบ-สุก, วันหมดอายุ)',
+  ]},
 ];
 
 // ============================================================
@@ -58,6 +136,7 @@ const state = {
   holidays: [],
   fixedCosts: {}, // { [yyyy-mm]: { rent, water, electricity } } — admin+ only
   managerPay: {}, // { [staffId]: monthlySalary } — admin+ only
+  ruleAcknowledgments: [], // one doc per staff id: { version, acknowledgedAt }
   scheduleMonth: currentYYYYMM(),
   financialMonth: currentYYYYMM(),
   categoryOpen: {},
@@ -446,6 +525,7 @@ function render() {
     case 'warehouse': view.innerHTML = renderWarehouse(); break;
     case 'analytics': view.innerHTML = renderAnalytics(); break;
     case 'checklist': view.innerHTML = renderChecklist(); break;
+    case 'rules': view.innerHTML = renderRules(); break;
     case 'admin': view.innerHTML = renderAdmin(); break;
     case 'financial': view.innerHTML = renderFinancial(); break;
     case 'notifications': view.innerHTML = renderNotifications(); break;
@@ -937,6 +1017,67 @@ function renderRoutineCard(routine, canManage) {
       <div class="modal-actions" style="margin-top:12px">
         <button class="btn btn-primary" data-action="open-routine-report-modal" data-id="${routine.id}">ทำเช็คลิสต์นี้</button>
         ${canManage ? `<button class="btn btn-ghost" data-action="delete-routine" data-id="${routine.id}">ลบ</button>` : ''}
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// Render: Work rules
+// ============================================================
+
+function renderRules() {
+  const myAck = state.ruleAcknowledgments.find((a) => a.id === state.user.id);
+  const acknowledged = myAck && myAck.version === WORK_RULES_VERSION;
+
+  const sectionsHtml = WORK_RULES_SECTIONS.map((sec) => `
+    <div style="margin-bottom:20px">
+      <h3 style="color:var(--color-primary-dark);margin:0 0 8px">${escapeHtml(sec.title)}</h3>
+      <ul style="margin:0;padding-left:20px;line-height:1.7">
+        ${sec.items.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}
+      </ul>
+    </div>`).join('');
+
+  const ackBlock = acknowledged ? `
+    <div class="card" style="background:#d9f0e1;border:1px solid var(--color-success)">
+      <strong style="color:var(--color-success)">✅ คุณรับทราบกฎระเบียบฉบับนี้แล้ว</strong>
+      <div class="sub" style="margin-top:4px">เมื่อ ${formatDateTimeThai(myAck.acknowledgedAt)}</div>
+    </div>` : `
+    <div class="card">
+      <label style="display:flex;align-items:flex-start;gap:10px;font-weight:400">
+        <input type="checkbox" data-action="toggle-rules-ack-button" style="width:20px;height:20px;margin-top:2px;flex-shrink:0" />
+        <span>ฉันได้อ่านและเข้าใจกฎระเบียบการทำงานข้างต้นแล้ว และยินยอมปฏิบัติตาม</span>
+      </label>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" data-action="acknowledge-rules" id="rules-ack-btn" disabled>รับทราบกฎระเบียบ</button>
+    </div>`;
+
+  return `
+    <div class="screen-header"><div><h2>กฎระเบียบการทำงาน</h2><div class="sub">ร้านหมาล่าทั่ง สาขาระยอง</div></div></div>
+    ${ackBlock}
+    <div class="card">${sectionsHtml}</div>
+    ${isManager() ? renderRulesCompliance() : ''}
+  `;
+}
+
+function renderRulesCompliance() {
+  const staffList = state.staff.filter((s) => s.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  const rows = staffList.map((s) => {
+    const ack = state.ruleAcknowledgments.find((a) => a.id === s.id);
+    const done = ack && ack.version === WORK_RULES_VERSION;
+    return `<tr>
+      <td>${escapeHtml(s.name)}</td>
+      <td>${done ? '<span class="badge badge-success">รับทราบแล้ว</span>' : '<span class="badge badge-danger">ยังไม่รับทราบ</span>'}</td>
+      <td>${done ? formatDateThai(dateStrOf(ack.acknowledgedAt)) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="card">
+      <h3>สถานะการรับทราบของพนักงาน</h3>
+      <div style="overflow-x:auto">
+        <table class="table-simple">
+          <thead><tr><th>ชื่อ</th><th>สถานะ</th><th>วันที่รับทราบ</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3">ไม่มีพนักงาน</td></tr>'}</tbody>
+        </table>
       </div>
     </div>`;
 }
@@ -1447,6 +1588,20 @@ async function handleAction(action, data, el) {
         return;
       }
 
+      case 'toggle-rules-ack-button': {
+        const btn = document.getElementById('rules-ack-btn');
+        if (btn) btn.disabled = !el.checked;
+        return;
+      }
+      case 'acknowledge-rules': {
+        await DB.setDoc('ruleAcknowledgments', state.user.id, {
+          version: WORK_RULES_VERSION, staffName: state.user.name, acknowledgedAt: DB.serverTimestamp(),
+        });
+        addNotification(`${state.user.name} รับทราบกฎระเบียบการทำงานแล้ว`);
+        toast('บันทึกการรับทราบแล้ว', 'success');
+        return;
+      }
+
       case 'open-rename-category-modal': {
         if (!isManager()) return;
         openRenameCategoryModal(data.cat);
@@ -1839,6 +1994,7 @@ async function startSubscriptions() {
   unsubscribers.push(DB.subscribeCollection('routineInspections', (items) => { state.routineInspections = items; render(); }));
   unsubscribers.push(DB.subscribeCollection('notifications', (items) => { state.notifications = items; render(); }, { orderByField: 'createdAt', limit: NOTIFICATIONS_PAGE_SIZE }));
   unsubscribers.push(DB.subscribeCollection('holidays', (items) => { state.holidays = items; render(); }));
+  unsubscribers.push(DB.subscribeCollection('ruleAcknowledgments', (items) => { state.ruleAcknowledgments = items; render(); }));
   if (roleAtLeast(state.user.role, 'admin')) {
     unsubscribers.push(DB.subscribeCollection('fixedCosts', (items) => {
       state.fixedCosts = {};
