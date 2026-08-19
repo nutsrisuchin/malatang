@@ -247,6 +247,11 @@ function isManager() { return state.user && roleAtLeast(state.user.role, 'manage
 function isAdmin() { return state.user && roleAtLeast(state.user.role, 'admin'); }
 function isOwner() { return state.user && state.user.role === 'owner'; }
 
+// Manager+ always can; an Employee can too if an admin has specifically
+// ticked "อนุญาตให้แก้ไขคลังสินค้า" for them (quantity/photo only — adding
+// items, deleting them, and renaming categories stay Manager+-only).
+function canEditWarehouseQty() { return isManager() || (state.user && state.user.canEditWarehouse === true); }
+
 function canManageStaffMember(target) {
   const me = state.user;
   if (!me) return false;
@@ -757,6 +762,7 @@ function renderScheduleSummary(staffList, ym) {
 
 function renderWarehouse() {
   const canEdit = isManager();
+  const canEditQty = canEditWarehouseQty();
   const categories = groupBy(state.warehouseItems, 'category');
   const catNames = Object.keys(categories).sort((a, b) => a.localeCompare(b, 'th'));
   const restockList = state.warehouseItems
@@ -788,11 +794,11 @@ function renderWarehouse() {
           ${state.restockExpanded ? '▴ ย่อ' : `▾ ดูเพิ่มเติม (${restockList.length - 3})`}
         </button>` : ''}
     </div>` : ''}
-    ${catNames.length ? catNames.map((cat) => renderWarehouseCategory(cat, categories[cat], canEdit)).join('') : '<div class="empty-state">ยังไม่มีรายการในคลัง</div>'}
+    ${catNames.length ? catNames.map((cat) => renderWarehouseCategory(cat, categories[cat], canEdit, canEditQty)).join('') : '<div class="empty-state">ยังไม่มีรายการในคลัง</div>'}
   `;
 }
 
-function renderWarehouseCategory(cat, items, canEdit) {
+function renderWarehouseCategory(cat, items, canEdit, canEditQty) {
   const open = !!state.categoryOpen[cat];
   return `
     <div class="category ${open ? 'open' : ''}">
@@ -800,11 +806,11 @@ function renderWarehouseCategory(cat, items, canEdit) {
         <span data-action="toggle-category" data-cat="${escapeHtml(cat)}" style="flex:1;cursor:pointer">${escapeHtml(cat)} (${items.length}) <span class="chevron">▸</span></span>
         ${canEdit ? `<button class="btn btn-sm btn-ghost btn-icon" title="แก้ไขชื่อหมวดหมู่" data-action="open-rename-category-modal" data-cat="${escapeHtml(cat)}">✎</button>` : ''}
       </div>
-      <div class="category-body">${items.map((item) => renderWarehouseItem(item, canEdit)).join('')}</div>
+      <div class="category-body">${items.map((item) => renderWarehouseItem(item, canEdit, canEditQty)).join('')}</div>
     </div>`;
 }
 
-function renderWarehouseItem(item, canEdit) {
+function renderWarehouseItem(item, canEdit, canEditQty) {
   const info = restockInfo(item);
   return `
     <div class="warehouse-item">
@@ -816,7 +822,7 @@ function renderWarehouseItem(item, canEdit) {
           ${info.daysRemaining != null ? `<div class="restock-flag ${info.level}">เหลือ ~${info.daysRemaining.toFixed(1)} วัน</div>` : ''}
         </div>
       </div>
-      ${canEdit ? `
+      ${canEditQty ? `
         <div class="warehouse-item-actions">
           <div class="qty-controls">
             <input type="number" id="wh-qty-input-${item.id}" value="${item.quantity}" min="0" />
@@ -825,7 +831,7 @@ function renderWarehouseItem(item, canEdit) {
           <label class="btn btn-sm btn-outline btn-icon" title="เปลี่ยนรูป">📷
             <input type="file" accept="image/*" capture="environment" data-action="wh-photo-select" data-id="${item.id}" style="display:none" />
           </label>
-          <button class="btn btn-sm btn-ghost btn-icon" data-action="delete-warehouse-item" data-id="${item.id}">🗑</button>
+          ${canEdit ? `<button class="btn btn-sm btn-ghost btn-icon" data-action="delete-warehouse-item" data-id="${item.id}">🗑</button>` : ''}
         </div>
       ` : ''}
     </div>`;
@@ -1104,7 +1110,7 @@ function renderStaffRow(s) {
       <div class="avatar">${initials(s.name)}</div>
       <div class="info">
         <div class="title">${escapeHtml(s.name)} <span class="badge badge-${s.role}">${ROLE_LABELS[s.role]}</span></div>
-        <div class="meta">${EMPLOYMENT_LABELS[s.employmentType] || ''} ${s.active === false ? '<span class="badge badge-muted">ปิดใช้งาน</span>' : ''}</div>
+        <div class="meta">${EMPLOYMENT_LABELS[s.employmentType] || ''} ${s.active === false ? '<span class="badge badge-muted">ปิดใช้งาน</span>' : ''} ${s.canEditWarehouse === true ? '<span class="badge badge-warning">🔓 แก้ไขคลังสินค้าได้</span>' : ''}</div>
       </div>
       ${canEditThis ? `
         <div class="actions">
@@ -1295,7 +1301,10 @@ function openAddStaffModal() {
         <div class="field" id="staff-monthly-salary-field" style="display:none">
           <label>เงินเดือนประจำ (บาท) — สำหรับผู้จัดการเท่านั้น</label>
           <input type="number" name="monthlySalary" min="0" />
-        </div>` : ''}
+        </div>
+        <label id="staff-warehouse-override-field" style="display:${roleOptions[0] === 'employee' ? 'flex' : 'none'};align-items:center;gap:8px;font-weight:400;margin-top:4px">
+          <input type="checkbox" name="canEditWarehouse" style="width:20px;height:20px" /> อนุญาตให้แก้ไขคลังสินค้า (จำนวน/รูปภาพ)
+        </label>` : ''}
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" data-action="close-modal">ยกเลิก</button>
         <button type="submit" class="btn btn-primary">บันทึก</button>
@@ -1330,7 +1339,10 @@ function openEditStaffModal(id) {
         <div class="field" id="staff-monthly-salary-field" style="display:${s.role === 'manager' ? 'block' : 'none'}">
           <label>เงินเดือนประจำ (บาท) — สำหรับผู้จัดการเท่านั้น</label>
           <input type="number" name="monthlySalary" min="0" value="${state.managerPay[s.id] != null ? state.managerPay[s.id] : ''}" />
-        </div>` : ''}
+        </div>
+        <label id="staff-warehouse-override-field" style="display:${s.role === 'employee' ? 'flex' : 'none'};align-items:center;gap:8px;font-weight:400;margin-top:4px">
+          <input type="checkbox" name="canEditWarehouse" style="width:20px;height:20px" ${s.canEditWarehouse === true ? 'checked' : ''} /> อนุญาตให้แก้ไขคลังสินค้า (จำนวน/รูปภาพ)
+        </label>` : ''}
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:4px">
         <input type="checkbox" name="active" style="width:20px;height:20px" ${s.active !== false ? 'checked' : ''} /> เปิดใช้งานอยู่
       </label>
@@ -1585,6 +1597,8 @@ async function handleAction(action, data, el) {
       case 'staff-role-toggle': {
         const salaryField = document.getElementById('staff-monthly-salary-field');
         if (salaryField) salaryField.style.display = el.value === 'manager' ? 'block' : 'none';
+        const warehouseField = document.getElementById('staff-warehouse-override-field');
+        if (warehouseField) warehouseField.style.display = el.value === 'employee' ? 'flex' : 'none';
         return;
       }
 
@@ -1645,7 +1659,7 @@ async function handleAction(action, data, el) {
       }
 
       case 'wh-qty-update': {
-        if (!isManager()) return;
+        if (!canEditWarehouseQty()) return;
         const item = state.warehouseItems.find((i) => i.id === data.id);
         const input = document.getElementById(`wh-qty-input-${data.id}`);
         if (!item || !input) return;
@@ -1654,8 +1668,8 @@ async function handleAction(action, data, el) {
         return;
       }
       case 'wh-photo-select': {
-        if (!isManager()) return;
-        await DB.updateDoc('warehouseItems', data.id, { photo: data.photo });
+        if (!canEditWarehouseQty()) return;
+        await DB.updateDoc('warehouseItems', data.id, { photo: data.photo, updatedAt: DB.serverTimestamp() });
         toast('อัปเดตรูปภาพแล้ว', 'success');
         return;
       }
@@ -1754,7 +1768,8 @@ async function handleForm(name, formData, formEl) {
         const employmentType = formData.get('employmentType');
         if (state.user.role === 'manager' && role !== 'employee') { toast('ผู้จัดการเพิ่มได้เฉพาะพนักงานทั่วไป', 'error'); return; }
         const { uid } = await DB.createStaffAuthAccount(staffName, pin);
-        await DB.setDoc('staff', uid, { name: staffName, role, employmentType, active: true, createdAt: DB.serverTimestamp() });
+        const canEditWarehouse = isAdmin() && role === 'employee' && !!formData.get('canEditWarehouse');
+        await DB.setDoc('staff', uid, { name: staffName, role, employmentType, active: true, canEditWarehouse, createdAt: DB.serverTimestamp() });
         if (isAdmin() && role === 'manager') {
           const monthlySalary = Number(formData.get('monthlySalary')) || 0;
           await DB.setDoc('managerPay', uid, { monthlySalary });
@@ -1774,7 +1789,11 @@ async function handleForm(name, formData, formEl) {
         const role = roleField.disabled ? target.role : formData.get('role');
         const employmentType = formData.get('employmentType');
         const active = !!formData.get('active');
-        await DB.updateDoc('staff', id, { name: staffName, role, employmentType, active });
+        const staffUpdate = { name: staffName, role, employmentType, active };
+        if (isAdmin()) {
+          staffUpdate.canEditWarehouse = role === 'employee' && !!formData.get('canEditWarehouse');
+        }
+        await DB.updateDoc('staff', id, staffUpdate);
         if (isAdmin() && role === 'manager' && formData.has('monthlySalary')) {
           const monthlySalary = Number(formData.get('monthlySalary')) || 0;
           await DB.setDoc('managerPay', id, { monthlySalary });
@@ -2035,7 +2054,10 @@ DB.onAuthStateChanged(async (fbUser) => {
       return;
     }
 
-    state.user = { id: fbUser.uid, name: staffDoc.name, role: staffDoc.role, employmentType: staffDoc.employmentType };
+    state.user = {
+      id: fbUser.uid, name: staffDoc.name, role: staffDoc.role, employmentType: staffDoc.employmentType,
+      canEditWarehouse: staffDoc.canEditWarehouse === true,
+    };
     state.view = 'home';
 
     document.getElementById('login-screen').style.display = 'none';

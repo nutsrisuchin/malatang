@@ -36,6 +36,13 @@ service cloud.firestore {
     function isManager()  { return isAdmin() || myRole() == 'manager'; }
     function isEmployee() { return isManager() || myRole() == 'employee'; }
 
+    // An admin-granted per-employee override: lets an Employee edit
+    // warehouse quantity/photo without full Manager rights.
+    function hasWarehouseOverride() {
+      return staffExists()
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.canEditWarehouse == true;
+    }
+
     // ---------- staff profiles (no money fields here) ----------
     match /staff/{staffId} {
       allow read: if isEmployee();
@@ -64,12 +71,17 @@ service cloud.firestore {
     // ---------- warehouse ----------
     match /warehouseItems/{docId} {
       allow read: if isEmployee();
-      allow write: if isManager();
+      allow create, delete: if isManager();
+      // An override-employee may only touch quantity/photo/updatedAt —
+      // not the name, category, or unit — everything else stays Manager+.
+      allow update: if isManager()
+        || (hasWarehouseOverride()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantity', 'photo', 'updatedAt']));
     }
 
     match /warehouseLogs/{docId} {
       allow read: if isEmployee();
-      allow create: if isManager();
+      allow create: if isManager() || hasWarehouseOverride();
       allow update, delete: if isAdmin();
     }
 
